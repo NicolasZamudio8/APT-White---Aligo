@@ -1,0 +1,117 @@
+.tactical-map {
+  background: #0f0f1e;
+  border: 1px solid #00ff00;
+  padding: 20px;
+  border-radius: 8px;
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+  position: relative;
+}
+
+.tactical-map h2 {
+  text-align: center;
+  margin: 0 0 20px 0;
+  color: #00ff00;
+  text-shadow: 0 0 10px #00ff00;
+}
+
+.map-svg {
+  border: 1px solid #00ff00;
+  background: #1a1a2e;
+  margin-bottom: 20px;
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.agent-info-panel {
+  position: absolute;
+  top: 100px;
+  right: 20px;
+  background: #1a1a2e;
+  border: 2px solid #00ff00;
+  padding: 15px;
+  border-radius: 4px;
+  min-width: 250px;
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+}
+
+.agent-info-panel h3 {
+  margin: 0 0 10px 0;
+  color: #ffaa00;
+}
+
+.agent-info-panel p {
+  margin: 5px 0;
+  font-size: 12px;
+}
+
+.status-online {
+  color: #00ff00;
+}
+
+.status-offline {
+  color: #ff0000;
+}
+
+.status-degraded {
+  color: #ffaa00;
+}
+
+.playbook-btn, .close-btn {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #00ff00;
+  color: #000;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+.close-btn {
+  background: #ff0000;
+  color: #fff;
+}
+
+.playbook-btn:hover {
+  background: #00cc00;
+}
+
+.close-btn:hover {
+  background: #cc0000;
+}
+
+.redirector-status {
+  background: #1a1a2e;
+  border: 1px solid #00ff00;
+  padding: 15px;
+  border-radius: 4px;
+  margin-top: 20px;
+}
+
+.redirector-status h3 {
+  margin: 0 0 10px 0;
+  color: #ffaa00;
+}
+
+.redirector-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.redirector-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  border: 1px solid #00ff00;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.redirector-item .latency {
+  color: #ffaa00;
+  font-weight: bold;
+}
