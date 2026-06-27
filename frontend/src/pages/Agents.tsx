@@ -1,18 +1,19 @@
 import { useState, useEffect } from 'react';
 import AgentTable from '../components/AgentTable';
+import { API_BASE_URL } from '../api/config';
 
 export default function Agents() {
   const [agents, setAgents] = useState([]);
 
   useEffect(() => {
     // Fetch agents from local backend simulator
-    fetch('http://localhost:8000/api/agents')
+    fetch(`${API_BASE_URL}/agents`)
       .then(res => res.json())
       .then(data => setAgents(data))
       .catch(err => console.error("Error fetching agents", err));
       
     const interval = setInterval(() => {
-      fetch('http://localhost:8000/api/agents')
+      fetch(`${API_BASE_URL}/agents`)
         .then(res => res.json())
         .then(data => setAgents(data))
         .catch(() => {});

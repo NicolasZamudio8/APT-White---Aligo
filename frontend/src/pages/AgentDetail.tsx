@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Cpu, Globe, Activity } from 'lucide-react';
 import Terminal from '../components/Terminal';
+import { API_BASE_URL } from '../api/config';
 
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -11,7 +12,7 @@ export default function AgentDetail() {
   const [redirectors, setRedirectors] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/agents')
+    fetch(`${API_BASE_URL}/agents`)
       .then(res => res.json())
       .then((data: any[]) => {
         setAllAgents(data);
@@ -21,13 +22,13 @@ export default function AgentDetail() {
       .catch(err => console.error("Error fetching agent detail", err));
 
     // Fetch crypto keys
-    fetch('http://localhost:8000/api/crypto/keys')
+    fetch(`${API_BASE_URL}/crypto/keys`)
       .then(res => res.json())
       .then(data => setKeys(data))
       .catch(err => console.error("Error fetching keys", err));
 
     // Fetch redirectors
-    fetch('http://localhost:8000/api/redirectors')
+    fetch(`${API_BASE_URL}/redirectors`)
       .then(res => res.json())
       .then(data => setRedirectors(data))
       .catch(err => console.error("Error fetching redirectors", err));
@@ -39,7 +40,7 @@ export default function AgentDetail() {
       redirector_id: field === 'redirector_id' ? value : agent.redirector_id,
     };
 
-    fetch(`http://localhost:8000/api/agents/${agent.id}`, {
+    fetch(`${API_BASE_URL}/agents/${agent.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)

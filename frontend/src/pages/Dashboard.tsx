@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Activity, Users, Clock, AlertCircle, Bot } from 'lucide-react';
 import AiChat from '../components/AiChat';
+import { API_BASE_URL } from '../api/config';
 
 export default function Dashboard() {
   const [agents, setAgents] = useState<any[]>([]);
@@ -8,24 +9,24 @@ export default function Dashboard() {
 
   useEffect(() => {
     // Fetch agents from backend simulator
-    fetch('http://localhost:8000/api/agents')
+    fetch(`${API_BASE_URL}/agents`)
       .then(res => res.json())
       .then(data => setAgents(data))
       .catch(err => console.error("Error fetching agents", err));
 
     // Fetch results from backend simulator
-    fetch('http://localhost:8000/api/results')
+    fetch(`${API_BASE_URL}/results`)
       .then(res => res.json())
       .then(data => setResults(data))
       .catch(err => console.error("Error fetching results", err));
 
     const interval = setInterval(() => {
-      fetch('http://localhost:8000/api/agents')
+      fetch(`${API_BASE_URL}/agents`)
         .then(res => res.json())
         .then(data => setAgents(data))
         .catch(() => {});
         
-      fetch('http://localhost:8000/api/results')
+      fetch(`${API_BASE_URL}/results`)
         .then(res => res.json())
         .then(data => setResults(data))
         .catch(() => {});

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { usePlaybookStore } from '../store/playbookStore';
+import { API_BASE_URL } from '../api/config';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { 
   Play, 
@@ -62,7 +63,7 @@ export default function Playbooks() {
     fetchExecutions();
     
     // Fetch active agents for execution targeting
-    fetch('http://localhost:8000/api/agents')
+    fetch(`${API_BASE_URL}/agents`)
       .then(res => res.json())
       .then(data => setActiveAgents(data.filter((a: any) => a.status === 'online')))
       .catch(err => console.error('Error fetching agents:', err));
@@ -158,7 +159,7 @@ export default function Playbooks() {
     setSelectedPlaybook(playbookId);
     setSelectedAgents([]);
     // Fetch agents refresh
-    fetch('http://localhost:8000/api/agents')
+    fetch(`${API_BASE_URL}/agents`)
       .then(res => res.json())
       .then(data => setActiveAgents(data.filter((a: any) => a.status === 'online')))
       .catch(err => console.error(err));

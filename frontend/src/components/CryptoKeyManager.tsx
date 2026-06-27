@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './CryptoKeyManager.css';
+import { API_BASE_URL } from '../api/config';
 
 interface CryptoKey {
   id: string;
@@ -23,7 +24,7 @@ export const CryptoKeyManager: React.FC = () => {
 
   const fetchKeys = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/crypto/keys');
+      const response = await fetch(`${API_BASE_URL}/crypto/keys`);
       const data = await response.json();
       setKeys(data);
     } catch (error) {
@@ -33,7 +34,7 @@ export const CryptoKeyManager: React.FC = () => {
 
   const handleCreateKey = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/crypto/keys', {
+      const response = await fetch(`${API_BASE_URL}/crypto/keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -52,7 +53,7 @@ export const CryptoKeyManager: React.FC = () => {
 
   const handleActivateKey = async (keyId: string) => {
     try {
-      await fetch(`http://localhost:8000/api/crypto/keys/${keyId}/activate`, {
+      await fetch(`${API_BASE_URL}/crypto/keys/${keyId}/activate`, {
         method: 'PUT'
       });
       fetchKeys();
@@ -63,7 +64,7 @@ export const CryptoKeyManager: React.FC = () => {
 
   const handleDeleteKey = async (keyId: string) => {
     try {
-      await fetch(`http://localhost:8000/api/crypto/keys/${keyId}`, {
+      await fetch(`${API_BASE_URL}/crypto/keys/${keyId}`, {
         method: 'DELETE'
       });
       setKeys(keys.filter(k => k.id !== keyId));

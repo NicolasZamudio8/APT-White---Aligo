@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import { API_BASE_URL } from './config';
 
 const MOCK_AGENTS_FALLBACK: AgentLocation[] = [
   { agentId: 'ag-ant-1000', os: 'Windows 10', ip: '192.168.10.54', status: 'online', lat: 8.6193, lng: -76.3073, city: 'Antioquia' },

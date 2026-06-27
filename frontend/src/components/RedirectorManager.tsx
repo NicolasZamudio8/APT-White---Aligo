@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './RedirectorManager.css';
+import { API_BASE_URL } from '../api/config';
 
 interface Redirector {
   id: string;
@@ -30,7 +31,7 @@ export const RedirectorManager: React.FC = () => {
 
   const fetchRedirectors = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/redirectors');
+      const response = await fetch(`${API_BASE_URL}/redirectors`);
       const data = await response.json();
       setRedirectors(data);
     } catch (error) {
@@ -40,7 +41,7 @@ export const RedirectorManager: React.FC = () => {
 
   const handleCreateRedirector = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/redirectors', {
+      const response = await fetch(`${API_BASE_URL}/redirectors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRedir)
@@ -56,7 +57,7 @@ export const RedirectorManager: React.FC = () => {
 
   const handleUpdateStatus = async (redirectorId: string, newStatus: string) => {
     try {
-      await fetch(`http://localhost:8000/api/redirectors/${redirectorId}/status`, {
+      await fetch(`${API_BASE_URL}/redirectors/${redirectorId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
@@ -69,7 +70,7 @@ export const RedirectorManager: React.FC = () => {
 
   const handleDeleteRedirector = async (redirectorId: string) => {
     try {
-      await fetch(`http://localhost:8000/api/redirectors/${redirectorId}`, {
+      await fetch(`${API_BASE_URL}/redirectors/${redirectorId}`, {
         method: 'DELETE'
       });
       setRedirectors(redirectors.filter(r => r.id !== redirectorId));

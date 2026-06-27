@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, TerminalSquare, Sparkles } from 'lucide-react';
+import { API_BASE_URL } from '../api/config';
 
 export default function Terminal({ agents }: { agents: any[] }) {
   const [logs, setLogs] = useState<{type: 'system' | 'user' | 'agent', content: string, agent?: string}[]>([
@@ -33,7 +34,7 @@ export default function Terminal({ agents }: { agents: any[] }) {
 
     // Mock API Call
     try {
-      const res = await fetch('http://localhost:8000/api/command', {
+      const res = await fetch(`${API_BASE_URL}/command`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agent_id: selectedAgent, command: cmd })

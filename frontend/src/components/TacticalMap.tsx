@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './TacticalMap.css';
+import { API_BASE_URL } from '../api/config';
 
 interface Agent {
   agentId: string;
@@ -36,7 +37,7 @@ export const TacticalMap: React.FC = () => {
 
   const fetchAgents = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/agents/locations');
+      const response = await fetch(`${API_BASE_URL}/agents/locations`);
       const data = await response.json();
       setAgents(data);
     } catch (error) {
@@ -46,7 +47,7 @@ export const TacticalMap: React.FC = () => {
 
   const fetchRedirectors = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/redirectors');
+      const response = await fetch(`${API_BASE_URL}/redirectors`);
       const data = await response.json();
       setRedirectors(data);
     } catch (error) {

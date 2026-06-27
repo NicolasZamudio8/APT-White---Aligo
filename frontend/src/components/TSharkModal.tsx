@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X, Radio, Download, Square, Circle } from 'lucide-react';
+import { API_BASE_URL } from '../api/config';
 
 interface TSharkModalProps {
   onClose: () => void;
@@ -33,7 +34,7 @@ export default function TSharkModal({ onClose, isOpen = true }: TSharkModalProps
 
   const fetchPackets = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/tshark/packets');
+      const response = await fetch(`${API_BASE_URL}/tshark/packets`);
       if (response.ok) {
         const data = await response.json();
         const lines = data.map((p: any) => p.line);

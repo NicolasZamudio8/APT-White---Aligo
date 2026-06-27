@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Sparkles, User, Bot, Loader2, Trash2, Shield, AlertTriangle } from 'lucide-react';
 
-// Backend URL from environment — never expose the Gemini key in the frontend
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+import { API_URL } from '../api/config';
 
 // Stable session ID for this browser tab — uses native crypto, no extra dependency
 const SESSION_ID = (() => {

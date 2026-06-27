@@ -16,7 +16,7 @@
 - Diagrama de arquitectura (opcional, superpuesto)
 
 **Narración:**
-> "Aligo es una plataforma de comando y control de grado empresarial para simulación de adversarios. Arquitectura cliente-servidor desacoplada: frontend React con mapa táctico D3.js, backend FastAPI con WebSocket para agentes, y persistencia en Neon PostgreSQL. Integración nativa con Google Gemini para asistentes de IA."
+> "Aligo C2 Platform es una plataforma de comando y control de grado empresarial para simulación de adversarios. Arquitectura cliente-servidor desacoplada: frontend React con mapa táctico D3.js, backend FastAPI con WebSocket para agentes, y persistencia en Neon PostgreSQL. Integración nativa con Google Gemini para asistentes de IA."
 
 **Acciones en pantalla:**
 - Mostrar terminal: `cd backend && python main.py`
