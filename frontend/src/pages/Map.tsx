@@ -137,7 +137,7 @@ export default function Map() {
       // Fire the vulnerability alert modal with AI recommendation
       const cmdColor = COMMAND_COLORS[commandId];
       const loc = locations.find(l => l.agentId === agentId);
-      setAlertData({
+      const attackPayload = {
         agentId,
         ip: loc?.ip ?? 'N/A',
         city: loc?.city ?? 'N/A',
@@ -146,7 +146,12 @@ export default function Map() {
         ringColor: cmdColor?.ring ?? '#e02424',
         glowColor: cmdColor?.glow ?? 'rgba(224,36,36,0.35)',
         timestamp: new Date().toLocaleTimeString(),
-      });
+      };
+
+      setAlertData(attackPayload);
+
+      // Dispatch real-time custom event to feed TShark network captures and AI Chat assistant
+      window.dispatchEvent(new CustomEvent('c2_attack_event', { detail: attackPayload }));
 
       setExecutions((prev) => [
         {
@@ -165,7 +170,7 @@ export default function Map() {
       // Still show the alert — the attack was attempted regardless
       const cmdColor = COMMAND_COLORS[commandId];
       const loc = locations.find(l => l.agentId === agentId);
-      setAlertData({
+      const attackPayload = {
         agentId,
         ip: loc?.ip ?? 'N/A',
         city: loc?.city ?? 'N/A',
@@ -174,7 +179,12 @@ export default function Map() {
         ringColor: cmdColor?.ring ?? '#e02424',
         glowColor: cmdColor?.glow ?? 'rgba(224,36,36,0.35)',
         timestamp: new Date().toLocaleTimeString(),
-      });
+      };
+
+      setAlertData(attackPayload);
+
+      // Dispatch event even on error so C2 operators capture the network signature
+      window.dispatchEvent(new CustomEvent('c2_attack_event', { detail: attackPayload }));
 
       setExecutions((prev) => [
         {
@@ -219,6 +229,22 @@ export default function Map() {
       const colorUpdates: Record<string, string> = {};
       results.forEach(res => { colorUpdates[res.loc.agentId] = commandId; });
       setAgentCommandColors(prev => ({ ...prev, ...colorUpdates }));
+
+      // Dispatch attack events for all agents targeted in the massive action
+      results.forEach(res => {
+        const cmdColor = COMMAND_COLORS[commandId];
+        const payload = {
+          agentId: res.loc.agentId,
+          ip: res.loc.ip,
+          city: res.loc.city,
+          commandId,
+          commandLabel: selectedCommand.label,
+          ringColor: cmdColor?.ring ?? '#e02424',
+          glowColor: cmdColor?.glow ?? 'rgba(224,36,36,0.35)',
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        window.dispatchEvent(new CustomEvent('c2_attack_event', { detail: payload }));
+      });
       
       const newExecutions = results.map((res, idx) => ({
         id: Date.now() + idx,

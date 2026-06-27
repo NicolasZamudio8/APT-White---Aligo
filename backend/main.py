@@ -119,9 +119,41 @@ if gemini_key:
 else:
     gemini_model = None
 
+# ── Gemini Chat Session Store ───────────────────────────────────────────────
+# Stores one multi-turn ChatSession per browser session_id to maintain context
+chat_sessions: Dict[str, object] = {}
+
+ALIGO_C2_SYSTEM_PROMPT = """
+Eres el Asistente SecOps de Aligo C2, una plataforma enterprise de Command & Control para operaciones de Red Team autorizadas en Colombia.
+
+CONTEXTO DEL PROYECTO:
+- Plataforma: Aligo C2 Enterprise — Dashboard táctico con mapa geográfico de agentes en Colombia (32 departamentos)
+- Stack: Frontend React/TypeScript + Tailwind + D3.js | Backend FastAPI + Python | DB: Neon PostgreSQL
+- Agentes: Nodos de campo desplegados por departamento, identificados por agentId (ej: ag-ant-1000), IP, ciudad y estado (online/offline)
+- Ataques disponibles: RECON (T1082), DUMP (T1003.001), BEACON (T1053+T1071), EXFIL (T1048)
+- TShark: Captura de red en tiempo real embebida que muestra datagrams TCP/UDP/DNS/TLS durante ejecución de payloads
+- Seguridad: SOC2, OWASP Top 10, MITRE ATT&CK framework, operaciones bajo consentimiento explícito
+
+TU ROL:
+1. Eres un experto en ciberseguridad ofensiva y defensiva con conocimiento profundo de MITRE ATT&CK, OWASP, NIST y frameworks de remediación
+2. Puedes ayudar a analizar vulnerabilidades detectadas y proporcionar planes de remediación detallados
+3. Puedes explicar técnicas de ataque y cómo defenderlas
+4. Respondes SIEMPRE en español (a menos que el usuario pida inglés)
+5. Cuando analices un ataque ejecutado en el dashboard, provees contexto específico del CVE, técnica MITRE, impacto y pasos de remediación
+6. Eres conciso pero exhaustivo — nunca das respuestas vagas
+
+RESTRICCIONES:
+- Solo operas dentro del contexto del proyecto Aligo C2 y ciberseguridad
+- No ejecutas código real ni accedes a sistemas externos
+- Todo análisis es en el contexto de operaciones Red Team autorizadas
+
+Cuando el usuario mencione un ataque específico (RECON, DUMP, BEACON, EXFIL) sobre un agente, adapta tu respuesta al contexto exacto del agente y la técnica utilizada.
+""".strip()
+
 # Initialize generators
 playbook_generator = PlaybookGenerator(gemini_model)
 result_decoder = ResultDecoder(gemini_model)
+
 
 # Pydantic Schemas for validation in the API boundary
 class PlaybookStepIn(BaseModel):
@@ -140,7 +172,70 @@ class PlaybookGenerateIn(BaseModel):
 class PlaybookExecuteIn(BaseModel):
     agent_ids: List[str] = Field(..., min_length=1)
 
+class AiChatIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    session_id: str = Field(default="default")
+    # Optional attack context injected automatically after a drag & drop
+    attack_context: Optional[dict] = Field(default=None)
+
+@app.post("/api/ai/chat")
+async def ai_chat(body: AiChatIn):
+    """
+    Multi-turn Gemini chat endpoint with project-level system prompt.
+    Each session_id maintains its own conversation history.
+    """
+    if not gemini_model:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini AI not configured. Set GEMINI_API_KEY in your .env file."
+        )
+
+    session_id = body.session_id
+
+    # Create a new chat session for this browser session if it doesn't exist yet
+    if session_id not in chat_sessions:
+        chat_sessions[session_id] = gemini_model.start_chat(history=[
+            {
+                "role": "user",
+                "parts": [ALIGO_C2_SYSTEM_PROMPT]
+            },
+            {
+                "role": "model",
+                "parts": ["Entendido. Soy el Asistente SecOps de Aligo C2. Tengo pleno contexto del proyecto: plataforma C2, agentes en Colombia, payloads disponibles (RECON, DUMP, BEACON, EXFIL) y el framework MITRE ATT&CK. ¿En qué puedo ayudarte?"]
+            }
+        ])
+
+    chat = chat_sessions[session_id]
+
+    # Build the user message — enrich with attack context if provided
+    user_message = body.message
+    if body.attack_context:
+        ctx = body.attack_context
+        user_message = (
+            f"[CONTEXTO DE ATAQUE EJECUTADO]\n"
+            f"- Payload: {ctx.get('commandLabel', 'N/A')} ({ctx.get('commandId', 'N/A').upper()})\n"
+            f"- Agente afectado: {ctx.get('agentId', 'N/A')} | IP: {ctx.get('ip', 'N/A')} | Ciudad: {ctx.get('city', 'N/A')}\n"
+            f"- Timestamp: {ctx.get('timestamp', 'N/A')}\n\n"
+            f"Pregunta del operador: {body.message}"
+        )
+
+    try:
+        response = await asyncio.to_thread(chat.send_message, user_message)
+        reply = response.text
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
+
+    return {"reply": reply, "session_id": session_id}
+
+@app.delete("/api/ai/chat/{session_id}")
+async def reset_chat_session(session_id: str):
+    """Clear the conversation history for a given session."""
+    if session_id in chat_sessions:
+        del chat_sessions[session_id]
+    return {"status": "reset", "session_id": session_id}
+
 class ConfigUpdateIn(BaseModel):
+
     security_level: str = Field(..., min_length=1)
     beacon_interval: int = Field(..., ge=1, le=3600)
     log_level: str = Field(..., min_length=3)
