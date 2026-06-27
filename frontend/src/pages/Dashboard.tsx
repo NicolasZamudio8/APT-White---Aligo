@@ -66,8 +66,8 @@ export default function Dashboard() {
           title="Comandos Ejecutados" 
           value={results.length}
           icon={<Activity className="w-5 h-5" />}
-          color="text-blue-500"
-          bgColor="bg-blue-500/10"
+          color="text-aligo-600"
+          bgColor="bg-aligo-600/10"
         />
         <MetricCard 
           title="Uptime del C2" 
@@ -79,7 +79,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-2 bg-[#111827] rounded-xl border border-gray-800 p-6 flex flex-col justify-between">
+        <div className="lg:col-span-2 bg-black rounded-xl border border-gray-800 p-6 flex flex-col justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white mb-4">Actividad Reciente</h2>
             <div className="space-y-3">
@@ -93,7 +93,7 @@ export default function Dashboard() {
                   <div className="flex items-center gap-3">
                     <button 
                       onClick={() => window.dispatchEvent(new CustomEvent('analyze_log', { detail: item.result }))}
-                      className="text-xs flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors"
+                      className="text-xs flex items-center gap-1 text-aligo-500 hover:text-aligo-300 transition-colors"
                       title="Analizar con IA"
                     >
                       <Bot className="w-3 h-3" /> Analizar
@@ -109,10 +109,10 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-[#111827] rounded-xl border border-gray-800 p-6">
+        <div className="bg-black rounded-xl border border-gray-800 p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Distribución por SO</h2>
           <div className="space-y-3">
-            <OSBar label="Windows" count={winCount} total={total || 1} color="bg-blue-500" />
+            <OSBar label="Windows" count={winCount} total={total || 1} color="bg-aligo-600" />
             <OSBar label="Linux" count={linCount} total={total || 1} color="bg-green-500" />
             <OSBar label="Otros" count={otherCount} total={total || 1} color="bg-purple-500" />
           </div>
@@ -133,10 +133,10 @@ export default function Dashboard() {
 
 function MetricCard({ title, value, icon, color, bgColor }: any) {
   return (
-    <div className="bg-[#111827] rounded-xl border border-gray-800 p-6">
+    <div className="bg-black rounded-xl border border-gray-800 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-gray-400">{title}</p>
+          <p className="text-sm text-zinc-500">{title}</p>
           <p className="text-2xl font-bold text-white mt-1">{value}</p>
         </div>
         <div className={`p-3 rounded-lg ${bgColor}`}>
@@ -157,7 +157,7 @@ function OSBar({ label, count, total, color }: any) {
         <span className="text-gray-300">{label}</span>
         <span className="text-gray-400">{count} ({percentage}%)</span>
       </div>
-      <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+      <div className="w-full bg-zinc-900 rounded-full h-2 overflow-hidden">
         <div 
           style={{ width: `${widthPercent}%` }} 
           className={`${color} h-2 rounded-full transition-all duration-500`} 

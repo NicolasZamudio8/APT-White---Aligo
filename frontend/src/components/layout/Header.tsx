@@ -5,24 +5,24 @@ export default function Header() {
   const [searchQuery, setSearchQuery] = useState('');
 
   return (
-    <header className="h-16 bg-[#111827] border-b border-gray-800 flex items-center justify-between px-6">
-      {/* Título de la página (lo manejará el router) */}
-      <div className="flex items-center gap-4">
-        <h1 className="text-xl font-semibold text-white">
-          Panel de Control
-        </h1>
+    <header className="h-16 bg-black border-b border-zinc-900 flex items-center justify-between px-6">
+      {/* Título con tipografía Outfit de Aligo */}
+      <div className="flex items-center gap-3">
+        <span className="font-outfit font-800 text-white text-lg tracking-tight">Aligo</span>
+        <span className="text-zinc-600 font-light">|</span>
+        <h1 className="text-sm font-medium text-zinc-400">Enterprise C2</h1>
       </div>
 
       {/* Barra de búsqueda global */}
       <div className="flex-1 max-w-md mx-8">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
           <input
             type="text"
             placeholder="Buscar agentes, comandos..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-gray-800 text-gray-200 pl-10 pr-4 py-2 rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full bg-zinc-950 text-zinc-300 pl-10 pr-4 py-2 rounded-lg border border-zinc-800 focus:border-aligo-700 focus:outline-none focus:ring-1 focus:ring-aligo-700 transition-colors"
           />
         </div>
       </div>
@@ -32,16 +32,17 @@ export default function Header() {
         <button
           type="button"
           aria-label="Notificaciones"
-          className="p-2 rounded-lg hover:bg-gray-800 transition-colors relative"
+          className="p-2 rounded-lg hover:bg-zinc-900 transition-colors relative"
         >
-          <Bell className="w-5 h-5 text-gray-400" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+          <Bell className="w-5 h-5 text-zinc-500" />
+          {/* Notificacion dot en rojo Aligo */}
+          <span className="absolute top-1 right-1 w-2 h-2 bg-aligo-600 rounded-full animate-pulse"></span>
         </button>
-        <div className="flex items-center gap-2 pl-4 border-l border-gray-700">
-          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+        <div className="flex items-center gap-2 pl-4 border-l border-zinc-800">
+          <div className="w-8 h-8 bg-aligo-700 rounded-full flex items-center justify-center ring-1 ring-aligo-600/50">
             <User className="w-4 h-4 text-white" />
           </div>
-          <span className="text-sm text-gray-300 hidden md:block">Operador</span>
+          <span className="text-sm text-zinc-400 hidden md:block">Operador</span>
         </div>
       </div>
     </header>

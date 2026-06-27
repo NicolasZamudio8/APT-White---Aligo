@@ -59,7 +59,7 @@ export default function Terminal({ agents }: { agents: any[] }) {
     <div className="h-full flex flex-col gap-4 flex-1">
       <div className="flex gap-4">
         <select 
-          className="bg-gray-800 border border-gray-700 text-slate-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-64 p-2.5"
+          className="bg-gray-800 border border-gray-700 text-zinc-200 text-sm rounded-lg focus:ring-aligo-600 focus:border-aligo-600 block w-64 p-2.5"
           value={selectedAgent}
           onChange={(e) => setSelectedAgent(e.target.value)}
         >
@@ -69,20 +69,20 @@ export default function Terminal({ agents }: { agents: any[] }) {
           ))}
         </select>
         
-        <button onClick={handleAiAssist} className="flex items-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 px-4 py-2 rounded-lg hover:bg-blue-500/20 transition-all text-sm font-medium">
+        <button onClick={handleAiAssist} className="flex items-center gap-2 bg-aligo-600/10 text-aligo-500 border border-aligo-600/20 px-4 py-2 rounded-lg hover:bg-aligo-600/20 transition-all text-sm font-medium">
           <Sparkles className="w-4 h-4" /> Translate with Gemini
         </button>
       </div>
 
       <div className="flex-1 bg-gray-900 rounded-xl border border-gray-800 flex flex-col overflow-hidden max-h-[50vh] min-h-[300px]">
-        <div className="bg-[#1f2937]/40 p-3 border-b border-gray-800 flex items-center gap-2 text-slate-400 text-sm">
+        <div className="bg-[#1f2937]/40 p-3 border-b border-gray-800 flex items-center gap-2 text-zinc-400 text-sm">
           <TerminalSquare className="w-4 h-4" />
           <span>Interactive Shell</span>
         </div>
         
         <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto font-mono text-sm space-y-2">
           {logs.map((log, i) => (
-            <div key={i} className={`flex gap-3 ${log.type === 'user' ? 'text-blue-400' : log.type === 'agent' ? 'text-slate-300' : 'text-slate-500'}`}>
+            <div key={i} className={`flex gap-3 ${log.type === 'user' ? 'text-aligo-500' : log.type === 'agent' ? 'text-zinc-300' : 'text-zinc-500'}`}>
               <span className="opacity-50 select-none">
                 {log.type === 'user' ? '❯' : log.type === 'system' ? 'ℹ' : '←'}
               </span>
@@ -91,19 +91,19 @@ export default function Terminal({ agents }: { agents: any[] }) {
           ))}
         </div>
 
-        <div className="p-4 bg-slate-900 border-t border-gray-800">
+        <div className="p-4 bg-zinc-950 border-t border-gray-800">
           <form onSubmit={handleSend} className="flex gap-4">
             <input 
               type="text" 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Enter command or natural language intent..." 
-              className="flex-1 bg-[#111827] border border-gray-800 rounded-lg px-4 py-2.5 text-slate-200 font-mono text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="flex-1 bg-black border border-gray-800 rounded-lg px-4 py-2.5 text-zinc-200 font-mono text-sm focus:outline-none focus:border-aligo-600 focus:ring-1 focus:ring-aligo-600"
             />
             <button 
               type="submit"
               disabled={!selectedAgent || !input.trim()}
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors"
+              className="bg-aligo-700 hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-aligo-700 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors"
             >
               <Send className="w-4 h-4" /> Send
             </button>

@@ -189,20 +189,20 @@ export default function Map() {
   return (
     <div className="space-y-6 text-slate-100 pb-12">
       {/* Header */}
-      <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+      <div className="flex justify-between items-center border-b border-zinc-900 pb-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-2">
-            <MapIcon className="w-8 h-8 text-blue-500" />
+            <MapIcon className="w-8 h-8 text-aligo-600" />
             Mapa Táctico de Agentes
           </h1>
-          <p className="text-slate-400 text-sm mt-1">
+          <p className="text-zinc-400 text-sm mt-1">
             Visualización geográfica en tiempo real de agentes activos y telemetría de red.
           </p>
         </div>
         <button
           onClick={() => fetchLocations()}
           disabled={loading}
-          className="bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 p-2.5 rounded-lg transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
+          className="bg-zinc-950 border border-zinc-900 hover:border-zinc-800 text-zinc-300 p-2.5 rounded-lg transition-colors flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           Refrescar Mapa
@@ -216,16 +216,16 @@ export default function Map() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-4 bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+      <div className="flex flex-col md:flex-row gap-4 bg-zinc-950/40 border border-zinc-900 rounded-2xl p-4">
         {/* Controles del Filtro Táctico Global */}
         <div className="flex-1 flex flex-col sm:flex-row gap-4 items-center">
-          <div className="flex items-center gap-2 min-w-max text-slate-300 font-semibold text-sm">
-            <Globe className="w-4 h-4 text-blue-400" /> Filtro Global:
+          <div className="flex items-center gap-2 min-w-max text-zinc-300 font-semibold text-sm">
+            <Globe className="w-4 h-4 text-aligo-500" /> Filtro Global:
           </div>
           <select
             value={selectedDepartment}
             onChange={(e) => setSelectedDepartment(e.target.value)}
-            className="w-full sm:w-64 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 text-slate-200 cursor-pointer"
+            className="w-full sm:w-64 bg-black border border-zinc-900 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-aligo-600 text-zinc-200 cursor-pointer"
           >
             <option value="TODOS">Todos los Departamentos</option>
             {geoData?.features.map((f: any) => (
@@ -235,23 +235,23 @@ export default function Map() {
             ))}
           </select>
           <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Buscar por ID, IP..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-blue-500 text-slate-200"
+              className="w-full bg-black border border-zinc-900 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-aligo-600 text-zinc-200"
             />
           </div>
         </div>
 
         {/* Botones de Modo */}
-        <div className="inline-flex rounded-full border border-slate-800 bg-slate-950 p-1 shrink-0">
+        <div className="inline-flex rounded-full border border-zinc-900 bg-black p-1 shrink-0">
           <button
             onClick={() => setDroneMode(true)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-              droneMode ? 'bg-emerald-600 text-white' : 'bg-transparent text-slate-300 hover:text-white'
+              droneMode ? 'bg-emerald-600 text-white' : 'bg-transparent text-zinc-300 hover:text-white'
             }`}
           >
             Modo Dron
@@ -259,7 +259,7 @@ export default function Map() {
           <button
             onClick={() => setDroneMode(false)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
-              !droneMode ? 'bg-slate-700 text-white' : 'bg-transparent text-slate-300 hover:text-white'
+              !droneMode ? 'bg-zinc-800 text-white' : 'bg-transparent text-zinc-300 hover:text-white'
             }`}
           >
             Modo Mapa
@@ -269,8 +269,8 @@ export default function Map() {
 
       {droneMode && (
         <div className="grid grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)] gap-6">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-slate-200">Barra de herramientas</h3>
+          <div className="rounded-2xl border border-zinc-900 bg-zinc-950/70 p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-zinc-200">Barra de herramientas</h3>
             <div className="space-y-2">
               {commandLibrary.map((command) => (
                 <div
@@ -278,23 +278,23 @@ export default function Map() {
                   draggable
                   onDragStart={(event) => handleDragStart(event, command.id)}
                   onDragEnd={() => setDraggedCommand(null)}
-                  className="cursor-grab rounded-xl border border-slate-800 bg-slate-950/70 p-3 transition hover:border-emerald-500 hover:bg-slate-900"
+                  className="cursor-grab rounded-xl border border-zinc-900 bg-black/70 p-3 transition hover:border-emerald-500 hover:bg-zinc-950"
                 >
                   <div className="text-sm font-semibold text-slate-100">{command.label}</div>
-                  <p className="text-[11px] text-slate-500 mt-1">{command.description}</p>
+                  <p className="text-[11px] text-zinc-500 mt-1">{command.description}</p>
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-zinc-500">
               {draggedCommand ? `Arrastrando: ${commandLibrary.find((cmd) => cmd.id === draggedCommand)?.label}` : 'Selecciona un comando y suéltalo sobre un agente.'}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 space-y-4">
+          <div className="rounded-2xl border border-zinc-900 bg-black/80 p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-slate-200">Plano 2D de agentes</h3>
-                <p className="text-xs text-slate-500">Cada nodo es un objetivo potencial para el comando seleccionado.</p>
+                <h3 className="text-sm font-semibold text-zinc-200">Plano 2D de agentes</h3>
+                <p className="text-xs text-zinc-500">Cada nodo es un objetivo potencial para el comando seleccionado.</p>
               </div>
               <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-emerald-300">
                 Live
@@ -307,11 +307,11 @@ export default function Map() {
               className={`grid h-[360px] grid-cols-2 gap-6 overflow-hidden rounded-xl border p-4 sm:grid-cols-3 xl:grid-cols-4 transition-colors duration-500 ${
                 regionalHealth === 'critical' 
                   ? 'border-red-500/50 bg-[radial-gradient(circle_at_center,_rgba(239,68,68,0.15),_transparent_62%)]' 
-                  : 'border-slate-800 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.12),_transparent_62%)]'
+                  : 'border-zinc-900 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.12),_transparent_62%)]'
               }`}
             >
               {filteredLocations.length === 0 ? (
-                <div className="col-span-full flex h-full items-center justify-center text-center text-sm text-slate-500">
+                <div className="col-span-full flex h-full items-center justify-center text-center text-sm text-zinc-500">
                   No hay agentes disponibles en esta región.
                 </div>
               ) : (
@@ -328,15 +328,15 @@ export default function Map() {
                       }}
                       className="flex flex-col items-center group cursor-crosshair"
                     >
-                      <div className={`flex h-14 w-14 items-center justify-center rounded-full border-2 transition-transform group-hover:scale-110 ${isOnline ? 'border-emerald-400 bg-emerald-500/20 shadow-[0_0_24px_rgba(16,185,129,0.25)]' : 'border-slate-500 bg-slate-700/30'}`}>
-                        <span className={`h-4 w-4 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-400'}`} />
+                      <div className={`flex h-14 w-14 items-center justify-center rounded-full border-2 transition-transform group-hover:scale-110 ${isOnline ? 'border-emerald-400 bg-emerald-500/20 shadow-[0_0_24px_rgba(16,185,129,0.25)]' : 'border-zinc-500 bg-zinc-800/30'}`}>
+                        <span className={`h-4 w-4 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-zinc-400'}`} />
                       </div>
-                      <span className="mt-2 max-w-[100px] truncate text-center text-[11px] font-semibold text-slate-200">
+                      <span className="mt-2 max-w-[100px] truncate text-center text-[11px] font-semibold text-zinc-200">
                         {loc.agentId}
                       </span>
-                      <span className="max-w-[100px] truncate text-center text-[9px] font-mono text-slate-400 leading-tight mt-0.5">
+                      <span className="max-w-[100px] truncate text-center text-[9px] font-mono text-zinc-400 leading-tight mt-0.5">
                         {loc.ip}<br/>
-                        <span className="text-slate-500 uppercase tracking-wider">{loc.city}</span>
+                        <span className="text-zinc-500 uppercase tracking-wider">{loc.city}</span>
                       </span>
                     </div>
                   );
@@ -344,17 +344,17 @@ export default function Map() {
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-              <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Últimas ejecuciones</h4>
+            <div className="rounded-xl border border-zinc-900 bg-zinc-950/70 p-3">
+              <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Últimas ejecuciones</h4>
               <div className="mt-3 space-y-2">
                 {executions.length === 0 ? (
-                  <p className="text-sm text-slate-500">Aún no hay ejecuciones registradas.</p>
+                  <p className="text-sm text-zinc-500">Aún no hay ejecuciones registradas.</p>
                 ) : (
                   executions.map((execution) => (
-                    <div key={execution.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm">
+                    <div key={execution.id} className="flex items-center justify-between rounded-lg border border-zinc-900 bg-black/70 px-3 py-2 text-sm">
                       <div>
-                        <p className="font-semibold text-slate-200">{execution.command} → {execution.agentId}</p>
-                        <p className="text-[11px] text-slate-500">{execution.timestamp}</p>
+                        <p className="font-semibold text-zinc-200">{execution.command} → {execution.agentId}</p>
+                        <p className="text-[11px] text-zinc-500">{execution.timestamp}</p>
                       </div>
                       <span className={`text-xs font-semibold ${execution.status === 'Enviado' ? 'text-emerald-400' : 'text-amber-400'}`}>
                         {execution.status}
@@ -375,13 +375,13 @@ export default function Map() {
           {/* Left Panel: Search & Agent List (1 col) */}
         <div className="lg:col-span-1 space-y-4 flex flex-col max-h-[700px]">
           {/* List Box */}
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-3 flex-1 overflow-y-auto space-y-2">
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold px-2">
+          <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-3 flex-1 overflow-y-auto space-y-2">
+            <span className="text-[10px] text-zinc-500 uppercase tracking-wider block font-semibold px-2">
               Agentes en Mapa ({filteredLocations.length})
             </span>
             
             {filteredLocations.length === 0 ? (
-              <div className="text-center text-slate-500 py-8 text-xs">
+              <div className="text-center text-zinc-500 py-8 text-xs">
                 No se encontraron agentes.
               </div>
             ) : (
@@ -395,15 +395,15 @@ export default function Map() {
                     onClick={() => setSelectedAgent(loc)}
                     className={`p-3 rounded-lg border cursor-pointer transition-all ${
                       isSelected 
-                        ? 'bg-blue-600/10 border-blue-500 text-white' 
-                        : 'bg-slate-950/40 border-slate-900 hover:border-slate-800 text-slate-400 hover:text-slate-200'
+                        ? 'bg-aligo-700/10 border-aligo-600 text-white' 
+                        : 'bg-black/40 border-zinc-950 hover:border-zinc-900 text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-xs truncate text-slate-200">{loc.agentId}</span>
+                      <span className="font-semibold text-xs truncate text-zinc-200">{loc.agentId}</span>
                       <span className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500 shadow-lg shadow-emerald-500/50' : 'bg-slate-600'}`} />
                     </div>
-                    <div className="flex justify-between items-center text-[10px] text-slate-500 mt-1.5 font-mono">
+                    <div className="flex justify-between items-center text-[10px] text-zinc-500 mt-1.5 font-mono">
                       <span>{loc.city}</span>
                       <span>{loc.ip}</span>
                     </div>
@@ -415,21 +415,21 @@ export default function Map() {
         </div>
 
         {/* Center Panel: SVG Cyberpunk Interactive Map (2 cols) */}
-        <div className="lg:col-span-2 bg-slate-950 border border-slate-900 rounded-2xl p-4 flex flex-col items-center justify-center relative overflow-hidden min-h-[500px]">
+        <div className="lg:col-span-2 bg-black border border-zinc-950 rounded-2xl p-4 flex flex-col items-center justify-center relative overflow-hidden min-h-[500px]">
           
           {/* Radar Sweep Animation (Visual Effect) */}
           <div className="absolute inset-0 pointer-events-none opacity-20">
-            <div className="absolute w-[600px] h-[600px] border border-blue-500/20 rounded-full top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-            <div className="absolute w-[400px] h-[400px] border border-blue-500/10 rounded-full top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-            <div className="absolute w-[200px] h-[200px] border border-blue-500/5 rounded-full top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            <div className="absolute w-[600px] h-[600px] border border-aligo-600/20 rounded-full top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            <div className="absolute w-[400px] h-[400px] border border-aligo-600/10 rounded-full top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            <div className="absolute w-[200px] h-[200px] border border-aligo-600/5 rounded-full top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
             {/* Rotating grid sweep lines */}
-            <div className="absolute top-1/2 left-1/2 w-[350px] h-[2px] bg-gradient-to-r from-blue-500/40 to-transparent origin-left animate-[spin_8s_linear_infinite]" />
+            <div className="absolute top-1/2 left-1/2 w-[350px] h-[2px] bg-gradient-to-r from-aligo-600/40 to-transparent origin-left animate-[spin_8s_linear_infinite]" />
           </div>
 
-          <span className="absolute top-4 left-4 text-[10px] text-slate-500 uppercase tracking-widest font-mono">
+          <span className="absolute top-4 left-4 text-[10px] text-zinc-500 uppercase tracking-widest font-mono">
             Radar Sector: COLOMBIA-C2
           </span>
-          <span className="absolute top-4 right-4 text-[10px] text-slate-500 font-mono flex items-center gap-1">
+          <span className="absolute top-4 right-4 text-[10px] text-zinc-500 font-mono flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             Live Sync
           </span>
@@ -466,7 +466,7 @@ export default function Map() {
                   stroke={isSelected ? '#60a5fa' : '#3b82f6'}
                   strokeWidth={isSelected ? 1.5 : 0.5}
                   strokeOpacity={isFaded ? 0.2 : (isSelected ? 1 : 0.4)}
-                  className={`transition-all duration-700 hover:fill-blue-900/40 hover:stroke-blue-400 ${isSelected ? 'drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]' : ''}`}
+                  className={`transition-all duration-700 hover:fill-blue-900/40 hover:stroke-aligo-500 ${isSelected ? 'drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]' : ''}`}
                   onClick={() => setSelectedDepartment(isSelected ? 'TODOS' : feature.properties.NOMBRE_DPT)}
                   style={{ cursor: 'pointer' }}
                 >
@@ -499,7 +499,7 @@ export default function Map() {
                   
                   {/* Selected Highlight Halo */}
                   {isSelected && (
-                    <circle cx={x} cy={y} r="12" fill="none" stroke="#3b82f6" strokeWidth="2" strokeDasharray="3,3" className="animate-[spin_4s_linear_infinite]" />
+                    <circle cx={x} cy={y} r="12" fill="none" stroke="#dc2626" strokeWidth="2" strokeDasharray="3,3" className="animate-[spin_4s_linear_infinite]" />
                   )}
 
                   {/* Core Node Circle */}
@@ -524,16 +524,16 @@ export default function Map() {
 
         {/* Right Panel: Selected Agent Meta & Command Box (1 col) */}
         <div className="lg:col-span-1 space-y-4">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 h-full flex flex-col justify-between">
+          <div className="bg-zinc-950/60 border border-zinc-900 rounded-xl p-5 space-y-4 h-full flex flex-col justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-slate-300 flex items-center gap-2 border-b border-slate-800 pb-3">
-                <Activity className="w-4 h-4 text-indigo-400" />
+              <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2 border-b border-zinc-900 pb-3">
+                <Activity className="w-4 h-4 text-aligo-500" />
                 Detalles del Nodo
               </h2>
 
               {!selectedAgent ? (
-                <div className="text-center text-slate-500 py-16 text-xs flex flex-col items-center justify-center gap-2">
-                  <MapIcon className="w-8 h-8 text-slate-700" />
+                <div className="text-center text-zinc-500 py-16 text-xs flex flex-col items-center justify-center gap-2">
+                  <MapIcon className="w-8 h-8 text-zinc-800" />
                   <span>Selecciona un nodo en el radar o en el listado para inspeccionar su telemetría.</span>
                 </div>
               ) : (
@@ -541,43 +541,43 @@ export default function Map() {
                   {/* Agent Stats */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">ID del Agente:</span>
-                      <span className="font-semibold text-slate-200 truncate max-w-[120px]" title={selectedAgent.agentId}>
+                      <span className="text-zinc-500">ID del Agente:</span>
+                      <span className="font-semibold text-zinc-200 truncate max-w-[120px]" title={selectedAgent.agentId}>
                         {selectedAgent.agentId}
                       </span>
                     </div>
 
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Estado de Conexión:</span>
+                      <span className="text-zinc-500">Estado de Conexión:</span>
                       {selectedAgent.status === 'online' ? (
                         <span className="text-emerald-400 font-semibold flex items-center gap-1">
                           <Wifi className="w-3.5 h-3.5" /> En Línea
                         </span>
                       ) : (
-                        <span className="text-slate-500 flex items-center gap-1">
+                        <span className="text-zinc-500 flex items-center gap-1">
                           <WifiOff className="w-3.5 h-3.5" /> Desconectado
                         </span>
                       )}
                     </div>
 
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Dirección IP:</span>
-                      <span className="font-mono text-slate-300">{selectedAgent.ip}</span>
+                      <span className="text-zinc-500">Dirección IP:</span>
+                      <span className="font-mono text-zinc-300">{selectedAgent.ip}</span>
                     </div>
 
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Sistema Operativo:</span>
-                      <span className="text-slate-300">{selectedAgent.os}</span>
+                      <span className="text-zinc-500">Sistema Operativo:</span>
+                      <span className="text-zinc-300">{selectedAgent.os}</span>
                     </div>
 
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Ubicación Geo:</span>
-                      <span className="text-slate-300">{selectedAgent.city}</span>
+                      <span className="text-zinc-500">Ubicación Geo:</span>
+                      <span className="text-zinc-300">{selectedAgent.city}</span>
                     </div>
 
                     <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500">Coordenadas:</span>
-                      <span className="font-mono text-[10px] text-slate-400">
+                      <span className="text-zinc-500">Coordenadas:</span>
+                      <span className="font-mono text-[10px] text-zinc-400">
                         {selectedAgent.lat.toFixed(4)}°, {selectedAgent.lng.toFixed(4)}°
                       </span>
                     </div>
@@ -585,14 +585,14 @@ export default function Map() {
 
                   {/* Latency Simulator Panel */}
                   {selectedAgent.status === 'online' && (
-                    <div className="bg-slate-950 border border-slate-900 rounded-lg p-3 space-y-2">
-                      <span className="text-[10px] text-slate-500 font-semibold block uppercase tracking-wider">Consola de Diagnóstico</span>
+                    <div className="bg-black border border-zinc-950 rounded-lg p-3 space-y-2">
+                      <span className="text-[10px] text-zinc-500 font-semibold block uppercase tracking-wider">Consola de Diagnóstico</span>
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400 flex items-center gap-1">
-                          <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+                        <span className="text-zinc-400 flex items-center gap-1">
+                          <Cpu className="w-3.5 h-3.5 text-aligo-500" />
                           Latencia C2:
                         </span>
-                        <span className="font-mono font-semibold text-indigo-400">
+                        <span className="font-mono font-semibold text-aligo-500">
                           {Math.floor(25 + (Math.random() * 30))} ms
                         </span>
                       </div>
@@ -605,7 +605,7 @@ export default function Map() {
             {selectedAgent && selectedAgent.status === 'online' && (
               <button
                 onClick={() => navigate(`/agents/${selectedAgent.agentId}`)}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-blue-950/20 mt-4"
+                className="w-full bg-aligo-700 hover:bg-aligo-600 text-white font-semibold text-xs py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-blue-950/20 mt-4"
               >
                 <Terminal className="w-3.5 h-3.5" />
                 Interceder en Terminal

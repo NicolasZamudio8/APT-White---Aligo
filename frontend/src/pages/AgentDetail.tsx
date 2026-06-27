@@ -23,7 +23,7 @@ export default function AgentDetail() {
     return (
       <div className="text-center p-12">
         <p className="text-red-400">Agente no encontrado o cargando...</p>
-        <Link to="/agents" className="inline-flex items-center gap-2 mt-4 text-blue-500 hover:text-blue-400">
+        <Link to="/agents" className="inline-flex items-center gap-2 mt-4 text-aligo-600 hover:text-aligo-500">
           <ArrowLeft className="w-4 h-4" /> Volver a Agentes
         </Link>
       </div>
@@ -44,9 +44,9 @@ export default function AgentDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Info Card */}
-        <div className="bg-[#111827] rounded-xl border border-gray-800 p-6 space-y-4">
+        <div className="bg-black rounded-xl border border-gray-800 p-6 space-y-4">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-blue-500" /> Detalle del Agente
+            <Cpu className="w-5 h-5 text-aligo-600" /> Detalle del Agente
           </h2>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between border-b border-gray-800 pb-2">
@@ -67,7 +67,7 @@ export default function AgentDetail() {
         </div>
 
         {/* Terminal and Interactive Control */}
-        <div className="lg:col-span-2 bg-[#111827] rounded-xl border border-gray-800 p-6 flex flex-col min-h-[500px]">
+        <div className="lg:col-span-2 bg-black rounded-xl border border-gray-800 p-6 flex flex-col min-h-[500px]">
           <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <Activity className="w-5 h-5 text-emerald-500" /> Control Interactivo
           </h2>
