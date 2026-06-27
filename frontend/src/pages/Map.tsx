@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
 import { useMapStore } from '../store/mapStore';
+import { sendAgentCommand } from '../api/map';
 import { 
   Map as MapIcon, 
   Activity, 
@@ -50,10 +51,20 @@ const COLOMBIA_BORDER_COORDS = [
   { lat: 12.4, lng: -71.7 }  // Close path
 ];
 
+const commandLibrary = [
+  { id: 'recon', label: 'Recon', description: 'Enumerar procesos y servicios' },
+  { id: 'dump', label: 'Dump', description: 'Capturar credenciales locales' },
+  { id: 'beacon', label: 'Beacon', description: 'Establecer señal de persistencia' },
+  { id: 'exfil', label: 'Exfil', description: 'Extraer artefactos sensibles' },
+];
+
 export default function Map() {
   const { locations, loading, error, fetchLocations } = useMapStore();
   const [selectedAgent, setSelectedAgent] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [droneMode, setDroneMode] = useState(true);
+  const [draggedCommand, setDraggedCommand] = useState<string | null>(null);
+  const [executions, setExecutions] = useState<Array<{ id: number; agentId: string; command: string; timestamp: string; status: string }>>([]);
   const navigate = useNavigate();
 
   // Width and height of the SVG map container
@@ -91,6 +102,61 @@ export default function Map() {
     loc.ip.includes(searchQuery)
   );
 
+  const handleDragStart = (event: DragEvent<HTMLDivElement>, commandId: string) => {
+    event.dataTransfer.setData('text/plain', commandId);
+    setDraggedCommand(commandId);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  };
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>, agentId: string) => {
+    event.preventDefault();
+    const commandId = event.dataTransfer.getData('text/plain');
+    const selectedCommand = commandLibrary.find((cmd) => cmd.id === commandId);
+
+    if (!selectedCommand) return;
+
+    const commandPayloads: Record<string, string> = {
+      recon: 'whoami',
+      dump: 'reg query HKLM\\SAM',
+      beacon: 'schtasks /query',
+      exfil: 'copy /b C:\\Users\\Public\\*.txt',
+    };
+
+    try {
+      const result = await sendAgentCommand({
+        agentId,
+        command: commandPayloads[commandId] || selectedCommand.label,
+      });
+
+      setExecutions((prev) => [
+        {
+          id: Date.now(),
+          agentId,
+          command: selectedCommand.label,
+          timestamp: new Date().toLocaleTimeString(),
+          status: result.status === 'sent' ? 'Enviado' : result.status,
+        },
+        ...prev,
+      ].slice(0, 5));
+    } catch (error) {
+      setExecutions((prev) => [
+        {
+          id: Date.now(),
+          agentId,
+          command: selectedCommand.label,
+          timestamp: new Date().toLocaleTimeString(),
+          status: error instanceof Error ? error.message : 'Error',
+        },
+        ...prev,
+      ].slice(0, 5));
+    } finally {
+      setDraggedCommand(null);
+    }
+  };
+
   return (
     <div className="space-y-6 text-slate-100 pb-12">
       {/* Header */}
@@ -121,10 +187,124 @@ export default function Map() {
         </div>
       )}
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Modo de visualización</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Cambia entre la vista de drones y el mapa tradicional.
+          </p>
+        </div>
+        <div className="inline-flex rounded-full border border-slate-800 bg-slate-950 p-1">
+          <button
+            onClick={() => setDroneMode(true)}
+            className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
+              droneMode ? 'bg-emerald-600 text-white' : 'bg-transparent text-slate-300 hover:text-white'
+            }`}
+          >
+            Modo Dron
+          </button>
+          <button
+            onClick={() => setDroneMode(false)}
+            className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
+              !droneMode ? 'bg-slate-700 text-white' : 'bg-transparent text-slate-300 hover:text-white'
+            }`}
+          >
+            Modo Mapa
+          </button>
+        </div>
+      </div>
+
+      {droneMode && (
+        <div className="grid grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)] gap-6">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-slate-200">Barra de herramientas</h3>
+            <div className="space-y-2">
+              {commandLibrary.map((command) => (
+                <div
+                  key={command.id}
+                  draggable
+                  onDragStart={(event) => handleDragStart(event, command.id)}
+                  onDragEnd={() => setDraggedCommand(null)}
+                  className="cursor-grab rounded-xl border border-slate-800 bg-slate-950/70 p-3 transition hover:border-emerald-500 hover:bg-slate-900"
+                >
+                  <div className="text-sm font-semibold text-slate-100">{command.label}</div>
+                  <p className="text-[11px] text-slate-500 mt-1">{command.description}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {draggedCommand ? `Arrastrando: ${commandLibrary.find((cmd) => cmd.id === draggedCommand)?.label}` : 'Selecciona un comando y suéltalo sobre un agente.'}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-200">Plano 2D de agentes</h3>
+                <p className="text-xs text-slate-500">Cada nodo es un objetivo potencial para el comando seleccionado.</p>
+              </div>
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-emerald-300">
+                Live
+              </span>
+            </div>
+
+            <div className="grid h-[360px] grid-cols-2 gap-6 overflow-hidden rounded-xl border border-slate-800 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.12),_transparent_62%)] p-4 sm:grid-cols-3 xl:grid-cols-4">
+              {filteredLocations.length === 0 ? (
+                <div className="col-span-full flex h-full items-center justify-center text-center text-sm text-slate-500">
+                  No hay agentes disponibles para el modo dron.
+                </div>
+              ) : (
+                filteredLocations.map((loc) => {
+                  const isOnline = loc.status === 'online';
+
+                  return (
+                    <div
+                      key={loc.agentId}
+                      onDragOver={handleDragOver}
+                      onDrop={(event) => handleDrop(event, loc.agentId)}
+                      className="flex flex-col items-center"
+                    >
+                      <div className={`flex h-14 w-14 items-center justify-center rounded-full border-2 ${isOnline ? 'border-emerald-400 bg-emerald-500/20 shadow-[0_0_24px_rgba(16,185,129,0.25)]' : 'border-slate-500 bg-slate-700/30'}`}>
+                        <span className={`h-4 w-4 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-400'}`} />
+                      </div>
+                      <span className="mt-2 max-w-[90px] truncate text-center text-[11px] font-semibold text-slate-300">
+                        {loc.agentId}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+              <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Últimas ejecuciones</h4>
+              <div className="mt-3 space-y-2">
+                {executions.length === 0 ? (
+                  <p className="text-sm text-slate-500">Aún no hay ejecuciones registradas.</p>
+                ) : (
+                  executions.map((execution) => (
+                    <div key={execution.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm">
+                      <div>
+                        <p className="font-semibold text-slate-200">{execution.command} → {execution.agentId}</p>
+                        <p className="text-[11px] text-slate-500">{execution.timestamp}</p>
+                      </div>
+                      <span className={`text-xs font-semibold ${execution.status === 'Enviado' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {execution.status}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Container */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        
-        {/* Left Panel: Search & Agent List (1 col) */}
+      {!droneMode && (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          
+          {/* Left Panel: Search & Agent List (1 col) */}
         <div className="lg:col-span-1 space-y-4 flex flex-col max-h-[700px]">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
             <h2 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
@@ -381,8 +561,8 @@ export default function Map() {
             )}
           </div>
         </div>
-
-      </div>
+      )}
     </div>
+  </div>
   );
 }
