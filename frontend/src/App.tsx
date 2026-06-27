@@ -4,10 +4,10 @@ import Dashboard from './pages/Dashboard.tsx';
 import Agents from './pages/Agents.tsx';
 import AgentDetail from './pages/AgentDetail.tsx';
 
-// Placeholders para páginas que aún no implementamos
-const Playbooks = () => <div className="text-white">Playbooks - Próximamente</div>;
-const Map = () => <div className="text-white">Mapa - Próximamente</div>;
-const Settings = () => <div className="text-white">Configuración - Próximamente</div>;
+import Playbooks from './pages/Playbooks.tsx';
+import Map from './pages/Map.tsx';
+import Settings from './pages/Settings.tsx';
+
 
 function App() {
   return (

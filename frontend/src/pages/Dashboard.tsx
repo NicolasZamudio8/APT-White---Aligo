@@ -1,89 +1,126 @@
+import { useState, useEffect } from 'react';
 import { Activity, Users, Clock, AlertCircle } from 'lucide-react';
-
-// Datos de ejemplo (luego los reemplazarás con datos reales)
-const mockMetrics = {
-  totalAgents: 12,
-  onlineAgents: 10,
-  offlineAgents: 2,
-  commandsExecuted: 45,
-  uptime: '2h 14m',
-  alerts: 3,
-};
-
-const mockActivity = [
-  { id: 1, agent: 'agente-01', command: 'whoami', status: 'success', time: '12:34:56' },
-  { id: 2, agent: 'agente-03', command: 'ipconfig', status: 'error', time: '12:28:45' },
-  { id: 3, agent: 'agente-02', command: 'ls -la', status: 'success', time: '12:15:22' },
-  { id: 4, agent: 'agente-04', command: 'net users', status: 'running', time: '12:10:10' },
-];
+import AiChat from '../components/AiChat';
 
 export default function Dashboard() {
+  const [agents, setAgents] = useState<any[]>([]);
+  const [results, setResults] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Fetch agents from backend simulator
+    fetch('http://localhost:8000/api/agents')
+      .then(res => res.json())
+      .then(data => setAgents(data))
+      .catch(err => console.error("Error fetching agents", err));
+
+    // Fetch results from backend simulator
+    fetch('http://localhost:8000/api/results')
+      .then(res => res.json())
+      .then(data => setResults(data))
+      .catch(err => console.error("Error fetching results", err));
+
+    const interval = setInterval(() => {
+      fetch('http://localhost:8000/api/agents')
+        .then(res => res.json())
+        .then(data => setAgents(data))
+        .catch(() => {});
+        
+      fetch('http://localhost:8000/api/results')
+        .then(res => res.json())
+        .then(data => setResults(data))
+        .catch(() => {});
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const total = agents.length;
+  const online = agents.filter(a => a.status === 'online').length;
+  const offline = total - online;
+
+  const winCount = agents.filter(a => a.os.toLowerCase().includes('windows') || a.os.toLowerCase().includes('win')).length;
+  const linCount = agents.filter(a => a.os.toLowerCase().includes('linux') || a.os.toLowerCase().includes('ubuntu')).length;
+  const otherCount = total - winCount - linCount;
+
   return (
     <div>
-      {/* Título de la página */}
       <h1 className="text-2xl font-bold text-white mb-6">Dashboard Operacional</h1>
 
       {/* Métricas */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <MetricCard 
           title="Agentes Online" 
-          value={`${mockMetrics.onlineAgents}/${mockMetrics.totalAgents}`}
+          value={`${online}/${total}`}
           icon={<Users className="w-5 h-5" />}
           color="text-green-500"
           bgColor="bg-green-500/10"
         />
         <MetricCard 
-          title="Alertas Activas" 
-          value={mockMetrics.alerts}
+          title="Agentes Offline" 
+          value={offline}
           icon={<AlertCircle className="w-5 h-5" />}
-          color="text-yellow-500"
-          bgColor="bg-yellow-500/10"
+          color="text-red-500"
+          bgColor="bg-red-500/10"
         />
         <MetricCard 
           title="Comandos Ejecutados" 
-          value={mockMetrics.commandsExecuted}
+          value={results.length}
           icon={<Activity className="w-5 h-5" />}
           color="text-blue-500"
           bgColor="bg-blue-500/10"
         />
         <MetricCard 
           title="Uptime del C2" 
-          value={mockMetrics.uptime}
+          value="Simulado"
           icon={<Clock className="w-5 h-5" />}
           color="text-purple-500"
           bgColor="bg-purple-500/10"
         />
       </div>
 
-      {/* Distribución por SO (placeholder para gráfica) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-2 bg-[#111827] rounded-xl border border-gray-800 p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Actividad Reciente</h2>
-          <div className="space-y-3">
-            {mockActivity.map((item) => (
-              <ActivityItem key={item.id} {...item} />
-            ))}
+        <div className="lg:col-span-2 bg-[#111827] rounded-xl border border-gray-800 p-6 flex flex-col justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-4">Actividad Reciente</h2>
+            <div className="space-y-3">
+              {results.slice(-5).reverse().map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between py-2 border-b border-gray-800/50 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-mono text-gray-300">{item.agent_id ? item.agent_id.substring(0, 8) : 'agente'}</span>
+                    <span className="text-sm text-gray-500">|</span>
+                    <span className="text-sm font-mono text-gray-400 truncate max-w-xs">{item.result}</span>
+                  </div>
+                  <span className="text-xs text-gray-500">Just now</span>
+                </div>
+              ))}
+              {results.length === 0 && (
+                <p className="text-sm text-gray-500">No se ha registrado actividad reciente.</p>
+              )}
+            </div>
           </div>
         </div>
+
         <div className="bg-[#111827] rounded-xl border border-gray-800 p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Distribución por SO</h2>
           <div className="space-y-3">
-            <OSBar label="Windows" count={8} total={12} color="bg-blue-500" />
-            <OSBar label="Linux" count={3} total={12} color="bg-green-500" />
-            <OSBar label="macOS" count={1} total={12} color="bg-purple-500" />
+            <OSBar label="Windows" count={winCount} total={total || 1} color="bg-blue-500" />
+            <OSBar label="Linux" count={linCount} total={total || 1} color="bg-green-500" />
+            <OSBar label="Otros" count={otherCount} total={total || 1} color="bg-purple-500" />
           </div>
         </div>
       </div>
 
-      {/* Footer o información adicional */}
+      {/* Panel de IA */}
+      <div className="mb-6">
+        <AiChat />
+      </div>
+
       <div className="text-xs text-gray-500 text-center">
         Última actualización: {new Date().toLocaleTimeString()}
       </div>
     </div>
   );
 }
-
-// --- Componentes internos ---
 
 function MetricCard({ title, value, icon, color, bgColor }: any) {
   return (
@@ -101,40 +138,9 @@ function MetricCard({ title, value, icon, color, bgColor }: any) {
   );
 }
 
-function ActivityItem({ agent, command, status, time }: any) {
-  const statusConfig = {
-    success: { color: 'text-green-500', label: '✅ Éxito' },
-    error: { color: 'text-red-500', label: '❌ Error' },
-    running: { color: 'text-yellow-500', label: '⏳ Ejecutando' },
-  };
-  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.success;
-
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-gray-800/50 last:border-0">
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-mono text-gray-300">{agent}</span>
-        <span className="text-sm text-gray-500">|</span>
-        <span className="text-sm font-mono text-gray-400">{command}</span>
-      </div>
-      <div className="flex items-center gap-4">
-        <span className={`text-sm ${config.color}`}>{config.label}</span>
-        <span className="text-xs text-gray-500">{time}</span>
-      </div>
-    </div>
-  );
-}
-
 function OSBar({ label, count, total, color }: any) {
   const percentage = Math.round((count / total) * 100);
-  const widthClass = {
-    0: 'w-0',
-    25: 'w-1/4',
-    33: 'w-1/3',
-    50: 'w-1/2',
-    67: 'w-2/3',
-    75: 'w-3/4',
-    100: 'w-full',
-  }[percentage] ?? 'w-full';
+  const widthPercent = total > 0 ? (count / total) * 100 : 0;
 
   return (
     <div>
@@ -143,7 +149,10 @@ function OSBar({ label, count, total, color }: any) {
         <span className="text-gray-400">{count} ({percentage}%)</span>
       </div>
       <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
-        <div className={`${color} h-2 rounded-full transition-all duration-500 ${widthClass}`} />
+        <div 
+          style={{ width: `${widthPercent}%` }} 
+          className={`${color} h-2 rounded-full transition-all duration-500`} 
+        />
       </div>
     </div>
   );

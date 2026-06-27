@@ -1,0 +1,33 @@
+- [x] **Fase 1: Setup Inicial**
+  - [x] Inicializar Frontend con React + Vite.
+  - [x] Configurar pnpm y dependencias del Frontend (Tailwind, Lucide, etc.).
+  - [x] Inicializar Backend Python (FastAPI).
+  - [x] Configurar requirements.txt y entorno virtual.
+- [x] **Fase 2: Backend Mock & Database**
+  - [x] Configurar conexión a Neon DB (Mock in-memory config for now).
+  - [x] Crear tablas `agents`, `tasks`, `results` (Mock data objects).
+  - [x] Crear servidor de WebSockets en FastAPI.
+  - [x] Crear endpoints REST para el Frontend.
+- [x] **Fase 3: Mock Agent**
+  - [x] Crear script `mock_agent.py`.
+  - [x] Implementar handshake WSS simulado.
+  - [x] Implementar ejecución de comandos simulada.
+- [x] **Fase 4: Frontend Premium (Dashboard)**
+  - [x] Layout empresarial (Dark Mode, Glassmorphism).
+  - [x] Tabla de Agentes dinámicos.
+  - [x] Terminal simulada para enviar comandos.
+  - [x] Configurar puerto 1700 para Vite.
+- [x] **Fase 5: IA Integration**
+  - [x] Integrar Gemini API en el backend para interpretar inputs del UI y enviar mock data.
+  - [x] Panel AI en el Frontend.
+- [x] **Fase 6: Nuevos Módulos C2 (Playbooks, Mapa, Configuración)**
+  - [x] Implementar API endpoints y backend routers para Playbooks, Locations, System Status y Logs.
+  - [x] Crear Zustand stores globales (`playbookStore.ts`, `mapStore.ts`, `settingsStore.ts`).
+  - [x] Desarrollar vista de Playbooks con editor modal y orquestación asíncrona de pasos.
+  - [x] Desarrollar vista de Mapa Táctico utilizando SVG vectorial de Colombia con pings de radar dinámicos y proyección de coordenadas.
+  - [x] Desarrollar vista de Configuración con pestañas de ajustes generales, seguridad, telemetría en vivo y consola de diagnóstico auditor.
+  - [x] Ruteo e importación limpia en `App.tsx` y en el menú de navegación.
+- [x] **Fase 7: Pruebas Locales (MVP E2E)**
+  - [x] Levantar Backend, Base de Datos, y Frontend.
+  - [x] Correr `mock_agent.py` y ver conexión en UI.
+  - [x] Ejecutar comando simulado y ver respuesta.
