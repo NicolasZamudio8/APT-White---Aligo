@@ -86,3 +86,76 @@ GEMINI_API_KEY=tu_api_key_de_gemini
    python mock_agent.py
    ```
    *El agente generará un ID dinámico y se conectará automáticamente al canal WebSocket del backend, apareciendo como nodo online en el mapa táctico.*
+
+---
+
+## 🚢 Despliegue en Railway
+
+### Requisitos Previos
+- Cuenta en [Railway](https://railway.app/)
+- Cuenta en [Neon PostgreSQL](https://neon.tech/) para base de datos serverless
+- API Key de [Google Gemini](https://makersuite.google.com/) (opcional, para asistente IA)
+
+### Paso 1: Configurar Base de Datos en Neon
+1. Crea un proyecto en Neon PostgreSQL
+2. Crea una base de datos (ej: `aligo_c2`)
+3. Copia el connection string (formato: `postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require`)
+
+### Paso 2: Desplegar Backend en Railway
+1. En Railway, crea un nuevo proyecto desde GitHub
+2. Selecciona el repositorio `APT-White---Aligo`
+3. Configura el servicio:
+   - **Root Directory:** `backend`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `python main.py`
+4. Agrega variables de entorno en Railway Settings:
+   ```
+   DATABASE_URL=postgresql://user:password@your-neon-host/neondb?sslmode=require
+   GEMINI_API_KEY=tu_api_key_de_gemini
+   ```
+5. Deploy - Railway detectará automáticamente el Python environment e instalará las dependencias
+
+### Paso 3: Desplegar Frontend en Railway
+1. En el mismo proyecto de Railway, agrega un nuevo servicio
+2. Selecciona el repositorio `APT-White---Aligo`
+3. Configura el servicio:
+   - **Root Directory:** `frontend`
+   - **Build Command:** (detectado automáticamente desde Dockerfile)
+   - **Start Command:** (detectado automáticamente desde Dockerfile)
+4. El `Dockerfile` del frontend usa:
+   - Stage 1: `node:20-alpine` para build con pnpm
+   - Stage 2: `nginx:alpine` para servir archivos estáticos en puerto 80
+5. No requiere variables de entorno adicionales
+
+### Paso 4: Configurar Dominio y Conexión
+1. Railway asignará dominios automáticos:
+   - Backend: `https://xxx-backend.up.railway.app`
+   - Frontend: `https://xxx-frontend.up.railway.app`
+2. Actualiza la URL del backend en el frontend si es necesario (por defecto usa `localhost:8000` en desarrollo)
+3. Para producción, configura `VITE_API_URL` en Railway del frontend si el backend está en un dominio diferente
+
+### Paso 5: Verificar Despliegue
+1. Abre la URL del frontend en Railway
+2. Verifica que el mapa táctico cargue los agentes desde la base de datos Neon
+3. Prueba la conexión de agentes ejecutando `mock_agent.py` localmente apuntando a la URL de Railway:
+   ```bash
+   # Modifica mock_agent.py para usar la URL de Railway
+   WS_URL = "wss://your-backend-url.up.railway.app/ws/{agent_id}"
+   ```
+
+### Troubleshooting Railway
+- **Backend falla:** Verifica que `DATABASE_URL` esté correctamente configurada en las variables de entorno
+- **Frontend no carga:** Revisa los logs de build en Railway, asegúrate que `pnpm install` y `pnpm run build` completen sin errores
+- **Agentes no conectan:** Verifica que el puerto WebSocket (8000) esté expuesto y que Railway no tenga restricciones de firewall
+
+---
+
+## 📚 Documentación Técnica
+
+Para detalles profundos sobre arquitectura, protocolos de comunicación, esquemas de cifrado y decisiones de diseño, consulta la documentación en el directorio `docs/`:
+
+- **Arquitectura Unificada:** `docs/02-architecture/arquitectura-unificada.md` - Diagramas Mermaid del sistema completo
+- **Modelo de Datos:** `docs/02-architecture/data-model.md` - Esquema relacional detallado
+- **Flujos de Secuencia:** `docs/02-architecture/sequence-flows.md` - Diagramas de secuencia para comandos E2E
+- **Security Baseline:** `docs/03-security/security-baseline-checklist.md` - Prácticas de seguridad implementadas
+- **Plan de Implementación:** `docs/04-implementation-plan/` - Roadmap técnico por sprints
