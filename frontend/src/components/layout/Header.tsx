@@ -5,12 +5,13 @@ export default function Header() {
   const [searchQuery, setSearchQuery] = useState('');
 
   return (
-    <header className="h-16 bg-black border-b border-zinc-900 flex items-center justify-between px-6">
+    // Header: pure black with a subtle Aligo crimson bottom border
+    <header className="h-16 bg-black border-b-2 flex items-center justify-between px-6" style={{ borderColor: '#7a0d0d' }}>
       {/* Título con tipografía Outfit de Aligo */}
       <div className="flex items-center gap-3">
-        <span className="font-outfit font-800 text-white text-lg tracking-tight">Aligo</span>
-        <span className="text-zinc-600 font-light">|</span>
-        <h1 className="text-sm font-medium text-zinc-400">Enterprise C2</h1>
+        <span className="font-outfit font-black text-white text-xl tracking-tight">ALIGO</span>
+        <span className="text-aligo-800 font-light mx-1">|</span>
+        <h1 className="text-xs font-medium text-zinc-500 tracking-widest uppercase">Enterprise C2</h1>
       </div>
 
       {/* Barra de búsqueda global */}
