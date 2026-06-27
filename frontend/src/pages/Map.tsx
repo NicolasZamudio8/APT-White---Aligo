@@ -838,7 +838,6 @@ export default function Map() {
       {showTShark && (
         <TSharkModal
           onClose={() => setShowTShark(false)}
-          agentIps={locations.map(l => l.ip)}
         />
       )}
 

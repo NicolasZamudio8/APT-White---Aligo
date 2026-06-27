@@ -47,20 +47,6 @@ const ATTACK_SIGNATURES: Record<string, (agentIp: string, ts: string) => string[
 
 const INTERFACES = ['eth0', 'lo', 'any', 'wlan0'];
 
-// Background noise: occasional legitimate-looking packets to fill silence
-function generateNoise(agentIps: string[]): string {
-  const ip = agentIps.length > 0 ? agentIps[Math.floor(Math.random() * agentIps.length)] : '10.0.0.50';
-  const now = new Date();
-  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}.${now.getMilliseconds().toString().padStart(6,'0')}`;
-  const noisePackets = [
-    `${ts}  ${ip.padEnd(18)} → 8.8.8.8             DNS    65     Standard query A time.windows.com`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1            TCP    ${Math.floor(Math.random()*60000+1024)} → 80 [ACK] Seq=1 Ack=1 Win=65535 Len=0`,
-    `${ts}  10.0.0.1          → ${ip.padEnd(18)}   TCP    80 → 49800 [PSH ACK] Len=200`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1            ICMP   74     Echo (ping) request`,
-    `${ts}  ${ip.padEnd(18)} → 239.255.255.250      UDP    49     mDNS/SSDP discovery`,
-  ];
-  return noisePackets[Math.floor(Math.random() * noisePackets.length)];
-}
 
 // Color per protocol/content
 function getLineColor(line: string): string {
@@ -85,14 +71,13 @@ interface AttackEvent {
   timestamp: string;
 }
 
-export default function TSharkModal({ onClose, agentIps = [] }: TSharkModalProps) {
+export default function TSharkModal({ onClose }: TSharkModalProps) {
   const [packets, setPackets] = useState<string[]>([]);
   const [isCapturing, setIsCapturing] = useState(true);
   const [selectedInterface, setSelectedInterface] = useState('any');
   const [packetCount, setPacketCount] = useState(0);
   const [attackLog, setAttackLog] = useState<AttackEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
-  const noiseRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const appendPackets = useCallback((lines: string[]) => {
     setPackets(prev => [...prev.slice(-300), ...lines]);
@@ -109,19 +94,6 @@ export default function TSharkModal({ onClose, agentIps = [] }: TSharkModalProps
     ]);
   }, []);
 
-  // Background noise traffic (only when no attack is in progress)
-  useEffect(() => {
-    if (!isCapturing) {
-      if (noiseRef.current) clearInterval(noiseRef.current);
-      return;
-    }
-    noiseRef.current = setInterval(() => {
-      if (Math.random() < 0.3) { // sparse noise — 30% chance every 600ms
-        appendPackets([generateNoise(agentIps)]);
-      }
-    }, 600);
-    return () => { if (noiseRef.current) clearInterval(noiseRef.current); };
-  }, [isCapturing, agentIps, appendPackets]);
 
   // Listen for attack events from Map.tsx drag & drop
   useEffect(() => {
