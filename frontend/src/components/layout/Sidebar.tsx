@@ -4,9 +4,9 @@ import {
   Users, 
   Terminal, 
   Settings,
-  Shield,
   Map
 } from 'lucide-react';
+import APTLogo from '../../assets/APT_White_Logo.png';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -21,7 +21,7 @@ export default function Sidebar() {
     <aside className="w-16 bg-[#111827] border-r border-gray-800 flex flex-col items-center py-6">
       {/* Logo */}
       <div className="mb-8">
-        <Shield className="w-8 h-8 text-blue-500" />
+        <img src={APTLogo} alt="APT White Logo" className="w-10 h-10 object-contain drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
       </div>
 
       {/* Navegación */}
