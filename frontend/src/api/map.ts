@@ -44,6 +44,12 @@ export interface AgentLocation {
   lat: number;
   lng: number;
   status: 'online' | 'offline';
+  last_command_category?: string;
+}
+
+export interface MapSettings {
+  drone_mode: boolean;
+  selected_department: string;
 }
 
 export interface AgentCommandPayload {
@@ -71,9 +77,9 @@ export async function getAgentLocations(): Promise<AgentLocation[]> {
       lat: item.lat,
       lng: item.lng,
       status: item.status || 'offline',
+      last_command_category: item.last_command_category,
     }));
     
-    // Si el backend es local y devuelve datos viejos (< 5 agentes), usar los 33 agentes de fallback
     if (mapped.length < 5) return MOCK_AGENTS_FALLBACK;
     return mapped;
     
@@ -81,6 +87,22 @@ export async function getAgentLocations(): Promise<AgentLocation[]> {
     console.warn("Backend C2 indisponible. Iniciando fallback de Modo Demo (33 Agentes).");
     return MOCK_AGENTS_FALLBACK;
   }
+}
+
+export async function getMapSettings(): Promise<MapSettings> {
+  const res = await fetch(`${API_BASE_URL}/map/settings`);
+  if (!res.ok) throw new Error('Failed to fetch map settings');
+  return res.json();
+}
+
+export async function updateMapSettings(settings: MapSettings): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE_URL}/map/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error('Failed to update map settings');
+  return res.json();
 }
 
 export async function sendAgentCommand({ agentId, command }: AgentCommandPayload): Promise<AgentCommandResult> {

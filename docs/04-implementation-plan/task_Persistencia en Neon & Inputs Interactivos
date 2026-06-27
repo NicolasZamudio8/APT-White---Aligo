@@ -1,0 +1,27 @@
+# Tareas — Persistencia en Neon & Inputs Interactivos
+
+Este documento detalla las tareas secuenciales para migrar el estado del C2 Aligo a la base de datos Neon PostgreSQL e implementar los controles interactivos del frontend.
+
+- `[ ]` **Fase 1: Capa de Base de Datos (SQLAlchemy)**
+  - `[ ]` Crear `backend/database.py` con la configuración del motor y sesiones (`pool_pre_ping=True`).
+  - `[ ]` Crear `backend/models.py` definiendo las 9 tablas acíclicas (`SystemConfigModel`, `AgentModel`, etc.).
+  - `[ ]` Implementar el script de pre-poblamiento automático (`seed_database`) con los 33 agentes, redirectores y llaves.
+  - `[ ]` Escribir y ejecutar el script `backend/test_db_conn.py` para validar la migración.
+
+- `[ ]` **Fase 2: Refactorización de FastAPI Endpoints**
+  - `[ ]` Modificar `backend/main.py` para usar inyección de dependencias `Session = Depends(get_db)`.
+  - `[ ]` Migrar CRUD de Agentes (`/api/agents`, `/api/agents/locations`) a la base de datos, soportando peticiones `PATCH`.
+  - `[ ]` Migrar API de Playbooks, Pasos y Ejecuciones (`/api/playbooks`, `/api/playbooks/executions`) a Neon.
+  - `[ ]` Consolidar y refactorizar el endpoint de `/api/ai/chat` (soporte multi-turn, guardrails y contexto).
+  - `[ ]` Migrar CRUD de `CRYPTO_KEY` y `REDIRECTOR` a base de datos.
+  - `[ ]` Reemplazar las colas de logs con inserciones en la tabla `SYSTEM_LOG`.
+
+- `[ ]` **Fase 3: Inputs Interactivos en el Frontend**
+  - `[ ]` **Input A (Red):** Modificar `RedirectorManager.tsx` para listar redirectores existentes en el desplegable `uplink_id`.
+  - `[ ]` **Input B (Seguridad):** Modificar `Settings.tsx` para agregar el toggle de encriptación general del canal (`enable_encryption`).
+  - `[ ]` **Input C (Agentes):** Modificar `AgentDetail.tsx` para agregar selectores de encriptación dedicada (`crypto_key_id`) y redireccionador (`redirector_id`).
+
+- `[ ]` **Fase 4: Verificación y Compilación**
+  - `[ ]` Ejecutar el servidor backend y validar la inicialización correcta de tablas en Neon.
+  - `[ ]` Verificar el flujo interactivo de Drag & Drop y comprobar su guardado en base de datos.
+  - `[ ]` Validar la compilación del frontend mediante `pnpm run build`.

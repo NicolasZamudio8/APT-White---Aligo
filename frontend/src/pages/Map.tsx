@@ -1,6 +1,6 @@
 import { useEffect, useState, type DragEvent } from 'react';
 import { useMapStore } from '../store/mapStore';
-import { sendAgentCommand } from '../api/map';
+import { sendAgentCommand, getMapSettings, updateMapSettings } from '../api/map';
 import { 
   Map as MapIcon, 
   Activity, 
@@ -63,6 +63,14 @@ export default function Map() {
       .then(res => res.json())
       .then(data => setGeoData(data))
       .catch(err => console.error('Error loading geojson:', err));
+
+    // Fetch persisted Map settings
+    getMapSettings()
+      .then(settings => {
+        setDroneMode(settings.drone_mode);
+        setSelectedDepartment(settings.selected_department);
+      })
+      .catch(err => console.error("Error loading map settings", err));
   }, []);
 
   useEffect(() => {
@@ -73,6 +81,17 @@ export default function Map() {
     }, 5000);
     return () => clearInterval(interval);
   }, [fetchLocations]);
+
+  // Synchronize attack colors from database execution records
+  useEffect(() => {
+    const initialColors: Record<string, string> = {};
+    locations.forEach(loc => {
+      if (loc.last_command_category) {
+        initialColors[loc.agentId] = loc.last_command_category;
+      }
+    });
+    setAgentCommandColors(prev => ({ ...initialColors, ...prev }));
+  }, [locations]);
 
   // Proyección D3
   const projection = geoData ? geoMercator().fitSize([mapWidth, mapHeight], geoData) : null;
@@ -260,6 +279,18 @@ export default function Map() {
     }
   };
 
+  const handleDroneModeChange = (mode: boolean) => {
+    setDroneMode(mode);
+    updateMapSettings({ drone_mode: mode, selected_department: selectedDepartment })
+      .catch(err => console.error("Failed to persist map mode", err));
+  };
+
+  const handleDepartmentChange = (dept: string) => {
+    setSelectedDepartment(dept);
+    updateMapSettings({ drone_mode: droneMode, selected_department: dept })
+      .catch(err => console.error("Failed to persist department filter", err));
+  };
+
   const calculateRegionalHealth = () => {
     if (selectedDepartment === 'TODOS' || filteredLocations.length === 0) return 'normal';
     const offlineCount = filteredLocations.filter(loc => loc.status === 'offline').length;
@@ -305,7 +336,7 @@ export default function Map() {
           </div>
           <select
             value={selectedDepartment}
-            onChange={(e) => setSelectedDepartment(e.target.value)}
+            onChange={(e) => handleDepartmentChange(e.target.value)}
             className="w-full sm:w-64 bg-black border border-zinc-900 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-aligo-600 text-zinc-200 cursor-pointer"
           >
             <option value="TODOS">Todos los Departamentos</option>
@@ -330,7 +361,7 @@ export default function Map() {
         {/* Botones de Modo */}
         <div className="inline-flex rounded-full border border-zinc-900 bg-black p-1 shrink-0">
           <button
-            onClick={() => setDroneMode(true)}
+            onClick={() => handleDroneModeChange(true)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
               droneMode ? 'bg-emerald-600 text-white' : 'bg-transparent text-zinc-300 hover:text-white'
             }`}
@@ -338,7 +369,7 @@ export default function Map() {
             Modo Dron
           </button>
           <button
-            onClick={() => setDroneMode(false)}
+            onClick={() => handleDroneModeChange(false)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
               !droneMode ? 'bg-zinc-800 text-white' : 'bg-transparent text-zinc-300 hover:text-white'
             }`}
@@ -835,11 +866,10 @@ export default function Map() {
       </button>
 
       {/* ── TShark Modal ── */}
-      {showTShark && (
-        <TSharkModal
-          onClose={() => setShowTShark(false)}
-        />
-      )}
+      <TSharkModal
+        isOpen={showTShark}
+        onClose={() => setShowTShark(false)}
+      />
 
       {/* ── Vulnerability Alert Modal (AI Recommendation) ── */}
       {alertData && (

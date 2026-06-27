@@ -1,0 +1,125 @@
+# Plan de Implementación — Persistencia Completa en Base de Datos Neon (PostgreSQL)
+
+Este documento detalla la arquitectura, el modelo de datos y el plan de migración para pasar todo el estado en memoria de la plataforma Aligo C2 a una base de datos PostgreSQL administrada en **Neon**, utilizando la cadena de conexión `DATABASE_URL` provista en el `.env`.
+
+---
+
+## 1. Decisiones de Arquitectura Resolvidas (/grill-me)
+
+- **ORM**: SQLAlchemy 2.0 (síncrono/asíncrono con base declarativa)
+- **Migraciones**: Alembic para control de versiones de esquema en producción. Para simplificar el arranque en Railway, se incluirá un hook automático de inicialización `Base.metadata.create_all()` en el evento de inicio del backend FastAPI si las tablas no existen.
+- **Seeding**: Pre-poblamiento automático en base de datos con los **33 agentes tácticos** correspondientes a los departamentos de Colombia en el primer inicio.
+- **Alcance**: Migración total de todas las entidades (Agentes, Playbooks, Pasos de Playbook, Ejecuciones/Comandos, Claves Criptográficas, Redireccionadores, Logs y Configuraciones).
+- **Tiempo Real**: Conexión activa de WebSocket Broadcast Hub que detecta y envía actualizaciones a la UI cuando ocurren cambios en la base de datos (e.g., agente que cambia de estado, nuevo comando ejecutado).
+
+---
+
+## 2. Modelado de Datos (Diseño del Esquema 3NF)
+
+Utilizaremos tipos de datos robustos y restricciones explícitas (Foreign Keys, Not Null, Unique) a nivel de motor para garantizar la integridad referencial.
+
+```mermaid
+erDiagram
+    SYSTEM_CONFIG {
+        VARCHAR key PK
+        VARCHAR value
+        VARCHAR description
+        TIMESTAMP updated_at
+    }
+    AGENT {
+        VARCHAR id PK
+        VARCHAR os
+        VARCHAR ip
+        VARCHAR city
+        DOUBLE lat
+        DOUBLE lng
+        VARCHAR status
+        BOOLEAN encryption_enabled
+        TIMESTAMP last_seen
+    }
+    PLAYBOOK {
+        VARCHAR id PK
+        VARCHAR name
+        VARCHAR description
+        TIMESTAMP created_at
+    }
+    PLAYBOOK_STEP {
+        INTEGER id PK
+        VARCHAR playbook_id FK
+        VARCHAR command
+        INTEGER delay
+        INTEGER step_order
+    }
+    EXECUTION {
+        INTEGER id PK
+        VARCHAR agent_id FK
+        VARCHAR command
+        VARCHAR status
+        VARCHAR timestamp
+    }
+    CRYPTO_KEY {
+        VARCHAR id PK
+        VARCHAR name
+        VARCHAR value
+        VARCHAR algorithm
+        TIMESTAMP created_at
+        TIMESTAMP rotated_at
+        BOOLEAN active
+    }
+    REDIRECTOR {
+        VARCHAR id PK
+        VARCHAR name
+        VARCHAR host
+        INTEGER port
+        VARCHAR status
+        VARCHAR uplink_id
+    }
+    SYSTEM_LOG {
+        INTEGER id PK
+        TIMESTAMP timestamp
+        VARCHAR level
+        VARCHAR message
+    }
+
+    PLAYBOOK ||--o{ PLAYBOOK_STEP : contains
+    AGENT ||--o{ EXECUTION : executes
+```
+
+---
+
+## 3. Cambios Propuestos
+
+### Componente Backend (`backend/`)
+
+#### 1. [NEW] [database.py](file:///d:/APT-White---Aligo/backend/database.py)
+Encargado del pooling de conexiones, inicialización de la sesión SQLAlchemy y del ciclo de vida del motor.
+- Usa `create_engine` con la variable `DATABASE_URL` cargada por `dotenv`.
+- Habilita `pool_pre_ping=True` para evitar caídas de conexiones inactivas (típicas en bases de datos serverless como Neon).
+
+#### 2. [NEW] [models.py](file:///d:/APT-White---Aligo/backend/models.py)
+Define las clases base declarativas de SQLAlchemy para todas las tablas:
+- `AgentModel`, `PlaybookModel`, `PlaybookStepModel`, `ExecutionModel`, `CryptoKeyModel`, `RedirectorModel`, `SystemLogModel`, `SystemConfigModel`.
+- Incluye el seeding automático en la tabla `agents` usando los 33 agentes de los departamentos si la tabla está vacía.
+
+#### 3. [MODIFY] [main.py](file:///d:/APT-White---Aligo/backend/main.py)
+Reescribir los endpoints actuales para usar inyección de dependencias `Session` (`db = Depends(get_db)`):
+- **GET `/api/agents/locations`**: Consultar directamente la tabla `agents` en la base de datos en lugar de `agents_info` en memoria.
+- **POST `/api/command`**: Insertar la ejecución en la base de datos y actualizar el estado del agente implicado.
+- **Playbooks**: Cargar y guardar playbooks dinámicamente desde la base de datos.
+- **Claves Criptográficas y Redireccionadores**: Persistir las operaciones CRUD en base de datos.
+- **WebSocket Broadcast Hub**: Crear un broker de mensajería asíncrono para difundir actualizaciones del mapa cuando ocurra una modificación en la DB.
+
+---
+
+## 4. Plan de Pruebas y Verificación
+
+### Pruebas Automatizadas
+Para verificar la conexión y persistencia correcta del motor de base de datos localmente:
+- Se creará un script de prueba rápida `test_db.py` en `backend/` que valida la inserción y lectura de un agente de prueba en la base de datos de Neon.
+
+### Verificación Manual
+1. **Verificación de Tablas**: Consultar las tablas directamente en la consola de Neon.
+2. **Verificación de Flujo Completo**:
+   - Abrir el panel Táctico de Agentes en la UI.
+   - Confirmar que los 33 agentes se renderizan en el mapa (cargados de la base de datos).
+   - Realizar un *drag & drop* de un payload y verificar que se guarda en la base de datos en la tabla de ejecuciones (`executions`) y se actualiza el log del sistema.

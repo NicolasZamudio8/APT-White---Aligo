@@ -34,6 +34,7 @@ export default function Settings() {
   const [logLevel, setLogLevel] = useState('INFO');
   const [securityLevel, setSecurityLevel] = useState('High');
   const [enableAi, setEnableAi] = useState(true);
+  const [enableEncryption, setEnableEncryption] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function Settings() {
       setLogLevel(config.log_level);
       setSecurityLevel(config.security_level);
       setEnableAi(config.enable_ai);
+      setEnableEncryption(config.enable_encryption !== false);
     }
   }, [config]);
 
@@ -67,7 +69,8 @@ export default function Settings() {
         security_level: securityLevel,
         beacon_interval: beaconInterval,
         log_level: logLevel,
-        enable_ai: enableAi
+        enable_ai: enableAi,
+        enable_encryption: enableEncryption
       });
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2000);
@@ -251,7 +254,7 @@ export default function Settings() {
                 </div>
 
                 <div className="space-y-4">
-                  <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">Servicio de IA (Gemini API)</label>
+                  <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">Servicio de IA & Seguridad</label>
                   
                   <label className="flex items-center gap-3 p-3 bg-black border border-zinc-900 rounded-lg cursor-pointer hover:border-zinc-800 transition-colors">
                     <input
@@ -263,6 +266,19 @@ export default function Settings() {
                     <div>
                       <p className="font-semibold text-xs text-zinc-200">Habilitar Asistente de IA Copilot</p>
                       <p className="text-[10px] text-zinc-500 mt-0.5">Permite a la IA traducir intenciones en comandos e interpretar telemetría del host.</p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 bg-black border border-zinc-900 rounded-lg cursor-pointer hover:border-zinc-800 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={enableEncryption}
+                      onChange={(e) => setEnableEncryption(e.target.checked)}
+                      className="w-4 h-4 rounded text-aligo-700 focus:ring-aligo-600 border-zinc-800 bg-zinc-900"
+                    />
+                    <div>
+                      <p className="font-semibold text-xs text-zinc-200">Habilitar Cifrado Simétrico del Canal</p>
+                      <p className="text-[10px] text-zinc-500 mt-0.5">Activa el cifrado dinámico de instrucciones y payloads entre el servidor C2 y los agentes.</p>
                     </div>
                   </label>
                 </div>

@@ -5,6 +5,7 @@ export interface SystemConfig {
   beacon_interval: number;
   log_level: string;
   enable_ai: boolean;
+  enable_encryption?: boolean;
 }
 
 export interface SystemStatus {

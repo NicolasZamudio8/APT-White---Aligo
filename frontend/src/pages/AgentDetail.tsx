@@ -7,6 +7,8 @@ export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
   const [agent, setAgent] = useState<any>(null);
   const [allAgents, setAllAgents] = useState<any[]>([]);
+  const [keys, setKeys] = useState<any[]>([]);
+  const [redirectors, setRedirectors] = useState<any[]>([]);
 
   useEffect(() => {
     fetch('http://localhost:8000/api/agents')
@@ -17,7 +19,41 @@ export default function AgentDetail() {
         if (found) setAgent(found);
       })
       .catch(err => console.error("Error fetching agent detail", err));
+
+    // Fetch crypto keys
+    fetch('http://localhost:8000/api/crypto/keys')
+      .then(res => res.json())
+      .then(data => setKeys(data))
+      .catch(err => console.error("Error fetching keys", err));
+
+    // Fetch redirectors
+    fetch('http://localhost:8000/api/redirectors')
+      .then(res => res.json())
+      .then(data => setRedirectors(data))
+      .catch(err => console.error("Error fetching redirectors", err));
   }, [id]);
+
+  const handleUpdateAgentConfig = (field: string, value: string) => {
+    const payload = {
+      crypto_key_id: field === 'crypto_key_id' ? value : agent.crypto_key_id,
+      redirector_id: field === 'redirector_id' ? value : agent.redirector_id,
+    };
+
+    fetch(`http://localhost:8000/api/agents/${agent.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(res => {
+        if (res.ok) {
+          setAgent({ ...agent, [field]: value });
+          alert("Configuración de agente actualizada en base de datos.");
+        } else {
+          alert("Error al actualizar la configuración del agente.");
+        }
+      })
+      .catch(err => console.error("Error updating agent config", err));
+  };
 
   if (!agent) {
     return (
@@ -62,6 +98,38 @@ export default function AgentDetail() {
               <span className="font-mono text-white flex items-center gap-1">
                 <Globe className="w-3.5 h-3.5 text-gray-500" /> {agent.ip}
               </span>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-800 pt-4 space-y-4">
+            <h3 className="text-sm font-semibold text-white">Configuración del Agente</h3>
+            
+            <div className="space-y-1">
+              <label className="block text-xs text-gray-400">Redireccionador (Proxy)</label>
+              <select
+                value={agent.redirector_id || ''}
+                onChange={(e) => handleUpdateAgentConfig('redirector_id', e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-aligo-600 focus:ring-1 focus:ring-aligo-600"
+              >
+                <option value="">Ninguno (Por defecto)</option>
+                {redirectors.map(r => (
+                  <option key={r.id} value={r.id}>{r.name} ({r.host})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-xs text-gray-400">Llave Criptográfica</label>
+              <select
+                value={agent.crypto_key_id || ''}
+                onChange={(e) => handleUpdateAgentConfig('crypto_key_id', e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-200 focus:outline-none focus:border-aligo-600 focus:ring-1 focus:ring-aligo-600"
+              >
+                <option value="">Ninguna (Por defecto)</option>
+                {keys.map(k => (
+                  <option key={k.id} value={k.id}>{k.name} ({k.algorithm})</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

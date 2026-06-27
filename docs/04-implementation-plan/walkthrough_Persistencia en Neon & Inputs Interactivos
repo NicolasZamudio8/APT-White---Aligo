@@ -1,0 +1,40 @@
+# Walkthrough — Persistencia Neon & Inputs de Control
+
+¡Hemos completado exitosamente la migración del C2 Aligo a la base de datos PostgreSQL en **Neon** y la integración de los inputs interactivos de red y seguridad!
+
+---
+
+## 1. Migración y Persistencia en Neon
+- **Mapeo Relacional**: Se implementaron 9 modelos con SQLAlchemy 2.0 en [models.py](file:///d:/APT-White---Aligo/backend/models.py) con restricciones íntegras y relaciones acíclicas 3NF.
+- **Seeding Automático**: Se programó un módulo de inicialización en [seed.py](file:///d:/APT-White---Aligo/backend/seed.py) que se ejecuta al arrancar si la base de datos está vacía, registrando los 33 agentes de los departamentos de Colombia, los redirectores principales y las claves de seguridad por defecto.
+- **Refactorización de Endpoints**: Se reescribió [main.py](file:///d:/APT-White---Aligo/backend/main.py) para inyectar sesiones de base de datos (`Depends(get_db)`) en todas las operaciones del API.
+- **WSS & Logs**: El ciclo de vida de los sockets ahora actualiza el estado de los agentes en la base de datos en tiempo real (online/offline) y graba la telemetría histórica en la tabla `SYSTEM_LOG`.
+
+---
+
+## 2. Consolidación de IA Chat (Gemini 3.5 Flash)
+- Se consolidaron los dos endpoints duplicados de chat en un único endpoint `/api/ai/chat`.
+- Añade control preventivo de guardrails (inyección de comandos), soporte multivuelta con almacenamiento de historial en base al `session_id`, contexto enriquecido en ataques drag & drop y fallback de simulación.
+
+---
+
+## 3. Implementación de los 3 Inputs del Frontend
+
+### A. Selector de Uplink en Redirectores
+- En el formulario de creación de [RedirectorManager.tsx](file:///d:/APT-White---Aligo/frontend/src/components/RedirectorManager.tsx), se agregó un control `<select>` dinámico que lista los redirectores de la base de datos.
+- Permite al operador definir de forma interactiva la topología y árbol de proxies (uplinks) del C2.
+
+### B. Toggle de Cifrado General del Canal
+- En [Settings.tsx](file:///d:/APT-White---Aligo/frontend/src/pages/Settings.tsx), pestaña Seguridad, se incorporó un toggle interactivo para "Habilitar Cifrado Simétrico del Canal".
+- Guarda y actualiza de inmediato el estado del atributo `enable_encryption` en la tabla `SYSTEM_CONFIG` de Neon.
+
+### C. Asignación de Llave y Redirector Dinámica por Agente
+- En [AgentDetail.tsx](file:///d:/APT-White---Aligo/frontend/src/pages/AgentDetail.tsx), se añadieron dos selectores desplegables a la tarjeta de detalles del agente.
+- Permiten al operador rotar la clave de cifrado dedicada de un agente (`crypto_key_id`) o cambiar dinámicamente el proxy a través del cual viaja su tráfico (`redirector_id`), persistiendo los cambios mediante peticiones `PATCH`.
+
+---
+
+## 4. Verificación de Compilación
+Toda la aplicación compila perfectamente:
+- **Backend**: Verificado mediante compilación de sintaxis de Python.
+- **Frontend**: El build de Vite finalizó con éxito (`pnpm run build`).

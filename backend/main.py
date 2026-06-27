@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import json
@@ -6,20 +6,37 @@ import uuid
 import asyncio
 import os
 import time
-from datetime import datetime
+import datetime
+from datetime import datetime as dt
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
-from encryption_manager import EncryptionManager
-from redirector_simulator import RedirectorSimulator
 import yaml
+
+from dotenv import load_dotenv
+# Load .env from workspace root directory
+root_env = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+load_dotenv(root_env)
+
+# Database Imports
+from database import engine, SessionLocal, Base, get_db
+from sqlalchemy.orm import Session
+from models import (
+    SystemConfigModel, AgentModel, PlaybookModel, PlaybookStepModel,
+    PlaybookExecutionModel, ExecutionModel, CryptoKeyModel, RedirectorModel,
+    SystemLogModel, NetworkPacketModel
+)
+from seed import seed_database
+
+# Encryption & C2 Helper Modules
+from encryption_manager import EncryptionManager
 from playbook_generator import PlaybookGenerator, ResultDecoder
 
 try:
-    import google.generativeai as genai
+    import google.generativeai as genai  # type: ignore
 except ImportError:
     genai = None
 
-app = FastAPI(title="Aligo C2 Backend Simulator")
+app = FastAPI(title="Aligo C2 Backend Server (Neon Persistence)")
 
 # Configure CORS for frontend access
 app.add_middleware(
@@ -33,94 +50,26 @@ app.add_middleware(
 # Startup timestamp for uptime calculation
 server_start_time = time.time()
 
-# Mock Data Storage
+# WebSocket active connection hub
 active_connections: Dict[str, WebSocket] = {}
-agents_info = {}
-mock_tasks = []
-mock_results = []
-
-# Playbooks storage with pre-seeded values
-mock_playbooks = {
-    "pb-1": {
-        "id": "pb-1",
-        "name": "Reconocimiento Inicial",
-        "description": "Obtiene informacion basica del sistema operativo y configuraciones de red del host objetivo.",
-        "steps": [
-            {"command": "whoami", "delay": 2},
-            {"command": "ipconfig", "delay": 3},
-            {"command": "netstat", "delay": 2}
-        ]
-    },
-    "pb-2": {
-        "id": "pb-2",
-        "name": "Verificacion de Persistencia",
-        "description": "Lista las tareas programadas y los usuarios registrados en el sistema.",
-        "steps": [
-            {"command": "hostname", "delay": 3},
-            {"command": "uname", "delay": 4}
-        ]
-    }
-}
-
-# Playbook execution logs
-playbook_executions = []
-
-# Encryption keys management
-crypto_keys = {
-    "default": {
-        "id": "key-default",
-        "name": "Default PSK",
-        "value": os.getenv("DEFAULT_PSK", "aligo-shared-secret-2024-v1"),
-        "algorithm": "XOR-256",
-        "createdAt": datetime.now().isoformat(),
-        "rotatedAt": datetime.now().isoformat(),
-        "active": True
-    }
-}
-
-# Redirector simulator
-redirector_simulator = RedirectorSimulator()
-
-# System Configuration
-system_config = {
-    "security_level": "High",
-    "beacon_interval": 10,
-    "log_level": "INFO",
-    "enable_ai": True,
-    "enable_encryption": True
-}
-
-# System Logs
-system_logs = [
-    {"timestamp": datetime.now().isoformat(), "level": "INFO", "message": "Aligo C2 Server Simulator initialized successfully."},
-    {"timestamp": datetime.now().isoformat(), "level": "INFO", "message": "Database pool established on Neon PostgreSQL (Backup in-memory activated)."},
-    {"timestamp": datetime.now().isoformat(), "level": "INFO", "message": "WebSocket listener bound to ws://localhost:8000/ws."},
-    {"timestamp": datetime.now().isoformat(), "level": "INFO", "message": "Enhanced encryption & redirector simulator initialized."}
-]
-
-# Cities in Colombia for agent geolocation mapping
-COLOMBIA_CITIES = [
-    {"city": "Bogota", "lat": 4.7110, "lng": -74.0721},
-    {"city": "Medellin", "lat": 6.2442, "lng": -75.5812},
-    {"city": "Cali", "lat": 3.4516, "lng": -76.5320},
-    {"city": "Barranquilla", "lat": 10.9685, "lng": -74.7813},
-    {"city": "Bucaramanga", "lat": 7.1193, "lng": -73.1227}
-]
 
 # Setup Gemini API key
 gemini_key = os.getenv("GEMINI_API_KEY", "")
 if gemini_key:
     try:
         genai.configure(api_key=gemini_key)
-        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+        gemini_model = genai.GenerativeModel('gemini-3.5-flash')
     except Exception as e:
         print(f"[-] Failed to configure Gemini: {e}")
         gemini_model = None
 else:
     gemini_model = None
 
-# ── Gemini Chat Session Store ───────────────────────────────────────────────
-# Stores one multi-turn ChatSession per browser session_id to maintain context
+# Initialize generators
+playbook_generator = PlaybookGenerator(gemini_model)
+result_decoder = ResultDecoder(gemini_model)
+
+# Gemini Chat Session Store
 chat_sessions: Dict[str, object] = {}
 
 ALIGO_C2_SYSTEM_PROMPT = """
@@ -150,12 +99,7 @@ RESTRICCIONES:
 Cuando el usuario mencione un ataque específico (RECON, DUMP, BEACON, EXFIL) sobre un agente, adapta tu respuesta al contexto exacto del agente y la técnica utilizada.
 """.strip()
 
-# Initialize generators
-playbook_generator = PlaybookGenerator(gemini_model)
-result_decoder = ResultDecoder(gemini_model)
-
-
-# Pydantic Schemas for validation in the API boundary
+# Pydantic Validation Schemas
 class PlaybookStepIn(BaseModel):
     command: str = Field(..., min_length=1)
     delay: int = Field(default=2, ge=0)
@@ -175,77 +119,16 @@ class PlaybookExecuteIn(BaseModel):
 class AiChatIn(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     session_id: str = Field(default="default")
-    # Optional attack context injected automatically after a drag & drop
+    context_type: Optional[str] = None
+    context_data: Optional[str] = None
     attack_context: Optional[dict] = Field(default=None)
 
-@app.post("/api/ai/chat")
-async def ai_chat(body: AiChatIn):
-    """
-    Multi-turn Gemini chat endpoint with project-level system prompt.
-    Each session_id maintains its own conversation history.
-    """
-    if not gemini_model:
-        raise HTTPException(
-            status_code=503,
-            detail="Gemini AI not configured. Set GEMINI_API_KEY in your .env file."
-        )
-
-    session_id = body.session_id
-
-    # Create a new chat session for this browser session if it doesn't exist yet
-    if session_id not in chat_sessions:
-        chat_sessions[session_id] = gemini_model.start_chat(history=[
-            {
-                "role": "user",
-                "parts": [ALIGO_C2_SYSTEM_PROMPT]
-            },
-            {
-                "role": "model",
-                "parts": ["Entendido. Soy el Asistente SecOps de Aligo C2. Tengo pleno contexto del proyecto: plataforma C2, agentes en Colombia, payloads disponibles (RECON, DUMP, BEACON, EXFIL) y el framework MITRE ATT&CK. ¿En qué puedo ayudarte?"]
-            }
-        ])
-
-    chat = chat_sessions[session_id]
-
-    # Build the user message — enrich with attack context if provided
-    user_message = body.message
-    if body.attack_context:
-        ctx = body.attack_context
-        user_message = (
-            f"[CONTEXTO DE ATAQUE EJECUTADO]\n"
-            f"- Payload: {ctx.get('commandLabel', 'N/A')} ({ctx.get('commandId', 'N/A').upper()})\n"
-            f"- Agente afectado: {ctx.get('agentId', 'N/A')} | IP: {ctx.get('ip', 'N/A')} | Ciudad: {ctx.get('city', 'N/A')}\n"
-            f"- Timestamp: {ctx.get('timestamp', 'N/A')}\n\n"
-            f"Pregunta del operador: {body.message}"
-        )
-
-    try:
-        response = await asyncio.to_thread(chat.send_message, user_message)
-        reply = response.text
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
-
-    return {"reply": reply, "session_id": session_id}
-
-@app.delete("/api/ai/chat/{session_id}")
-async def reset_chat_session(session_id: str):
-    """Clear the conversation history for a given session."""
-    if session_id in chat_sessions:
-        del chat_sessions[session_id]
-    return {"status": "reset", "session_id": session_id}
-
 class ConfigUpdateIn(BaseModel):
-
     security_level: str = Field(..., min_length=1)
     beacon_interval: int = Field(..., ge=1, le=3600)
     log_level: str = Field(..., min_length=3)
     enable_ai: bool
     enable_encryption: bool = True
-
-class ChatMessageIn(BaseModel):
-    message: str = Field(..., min_length=1)
-    context_type: Optional[str] = None
-    context_data: Optional[str] = None
 
 class CryptoKeyIn(BaseModel):
     name: str = Field(..., min_length=1)
@@ -257,639 +140,1244 @@ class RedirectorCreateIn(BaseModel):
     port: int = Field(..., ge=1, le=65535)
     uplink_id: Optional[str] = None
 
-# Helper function to map agent ID to Colombian City deterministically
-def get_agent_location(agent_id: str, index_offset: int = 0):
-    hash_val = hash(agent_id) + index_offset
-    city_info = COLOMBIA_CITIES[abs(hash_val) % len(COLOMBIA_CITIES)]
-    return city_info
+class AgentUpdateIn(BaseModel):
+    crypto_key_id: Optional[str] = None
+    redirector_id: Optional[str] = None
+
+class AgentCommandIn(BaseModel):
+    agent_id: str
+    command: str
+
+@app.on_event("startup")
+def startup_event():
+    print("[*] Initializing database schema...")
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        from models import AgentModel
+        if db.query(AgentModel).count() == 0:
+            seed_database(db)
 
 @app.get("/")
 def read_root():
-    return {"status": "Mock C2 Backend Running (Enhanced v2)", "engine": "FastAPI", "features": ["resilient_agent", "encryption", "ai_playbook_gen", "redirector_sim"]}
+    return {
+        "status": "Production C2 Backend (Neon PostgreSQL persistence active)",
+        "engine": "FastAPI + SQLAlchemy",
+        "features": ["resilient_agent", "db_encryption_keys", "ai_guardrails", "redirector_uplinks"]
+    }
 
-# WebSocket Endpoint
+# WebSocket Endpoint for Agent connection and WSS command dispatching
 @app.websocket("/ws/{agent_id}")
 async def websocket_endpoint(websocket: WebSocket, agent_id: str):
     await websocket.accept()
     active_connections[agent_id] = websocket
     
-    # Pre-populate agent details deterministically
-    city_info = get_agent_location(agent_id)
-    agents_info[agent_id] = {
-        "id": agent_id,
-        "os": "Windows 11" if "win" in agent_id.lower() else "Ubuntu 22.04" if "linux" in agent_id.lower() else "macOS Sonoma",
-        "ip": "192.168.1." + str(abs(hash(agent_id)) % 254 + 1),
-        "status": "online",
-        "city": city_info["city"],
-        "lat": city_info["lat"],
-        "lng": city_info["lng"],
-        "encryption_enabled": system_config["enable_encryption"]
-    }
-    
-    # Log connection event
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Agent {agent_id} connected from {city_info['city']} ({agents_info[agent_id]['ip']}) [Encryption: {'ON' if system_config['enable_encryption'] else 'OFF'}]"
-    })
-    
+    with SessionLocal() as db:
+        # Check if agent exists in Neon database
+        agent = db.query(AgentModel).filter_by(id=agent_id).first()
+        if not agent:
+            # Create a fallback agent entry in Bogota or Medellin region
+            lat, lng = 4.7110, -74.0721
+            db.add(AgentModel(
+                id=agent_id,
+                os="Windows 11" if "win" in agent_id.lower() else "Linux",
+                ip="192.168.1." + str(abs(hash(agent_id)) % 254 + 1),
+                city="Bogota",
+                lat=lat,
+                lng=lng,
+                status="online",
+                crypto_key_id="key-default",
+                redirector_id="redir-bog",
+                last_seen=dt.utcnow()
+            ))
+        else:
+            agent.status = "online"
+            agent.last_seen = dt.utcnow()
+        
+        # Read the active encryption key value
+        active_key = db.query(CryptoKeyModel).filter_by(active=True).first()
+        psk = active_key.value if active_key else "aligo-shared-secret-2024-v1"
+        
+        # Read encryption setting
+        encrypt_config = db.query(SystemConfigModel).filter_by(key="enable_encryption").first()
+        enable_encryption = (encrypt_config.value.lower() == "true") if encrypt_config else True
+
+        # Insert Connection Audit log
+        db.add(SystemLogModel(
+            level="INFO",
+            message=f"Agent {agent_id} connected from database registry [Encryption: {'ON' if enable_encryption else 'OFF'}]",
+            agent_id=agent_id
+        ))
+        db.commit()
+
     try:
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
-            print(f"Received from {agent_id}: {payload.get('type', 'unknown')}")
+            print(f"Received from agent {agent_id}: {payload.get('type', 'unknown')}")
             
-            # Decrypt if needed
-            if system_config["enable_encryption"] and "_encrypted" in payload:
-                psk = crypto_keys["default"]["value"]
+            # Decrypt if payload is encrypted
+            if enable_encryption and "_encrypted" in payload:
                 decrypted = EncryptionManager.decrypt_payload(payload, psk)
                 if decrypted:
                     payload = decrypted
-            
+
             if "result" in payload:
-                mock_results.append(payload)
-                system_logs.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "INFO",
-                    "message": f"Received execution result from agent {agent_id}: {payload.get('command', 'unknown')}."
-                })
+                with SessionLocal() as db:
+                    # Update command execution record in DB
+                    exec_row = db.query(ExecutionModel).filter(
+                        ExecutionModel.agent_id == agent_id,
+                        ExecutionModel.command == payload.get("command"),
+                        ExecutionModel.status == "sent"
+                    ).order_by(ExecutionModel.timestamp.desc()).first()
+                    
+                    if exec_row:
+                        exec_row.result = payload.get("result")
+                        exec_row.status = payload.get("status", "completed")
+                    
+                    # Update agent last seen timestamp
+                    agent = db.query(AgentModel).filter_by(id=agent_id).first()
+                    if agent:
+                        agent.last_seen = dt.utcnow()
+                        agent.status = "online"
+
+                    # Log result
+                    db.add(SystemLogModel(
+                        level="INFO",
+                        message=f"Received execution result from agent {agent_id}: {payload.get('command', 'unknown')}.",
+                        agent_id=agent_id
+                    ))
+                    db.commit()
+
     except WebSocketDisconnect:
         if agent_id in active_connections:
             del active_connections[agent_id]
-        if agent_id in agents_info:
-            agents_info[agent_id]["status"] = "offline"
+        
+        with SessionLocal() as db:
+            agent = db.query(AgentModel).filter_by(id=agent_id).first()
+            if agent:
+                agent.status = "offline"
+                agent.last_seen = dt.utcnow()
             
-        system_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "WARNING",
-            "message": f"Agent {agent_id} disconnected."
-        })
+            db.add(SystemLogModel(
+                level="WARNING",
+                message=f"Agent {agent_id} disconnected.",
+                agent_id=agent_id
+            ))
+            db.commit()
         print(f"Agent {agent_id} disconnected")
 
-# REST Endpoints for Agents
+# REST Endpoints for Agents Management
 @app.get("/api/agents")
-def get_agents():
-    return list(agents_info.values())
+def get_agents(db: Session = Depends(get_db)):
+    agents = db.query(AgentModel).all()
+    # Read encryption config
+    encrypt_config = db.query(SystemConfigModel).filter_by(key="enable_encryption").first()
+    enable_encryption = (encrypt_config.value.lower() == "true") if encrypt_config else True
+
+    # Optimized latest executions query using JOIN to avoid N+1 queries
+    from sqlalchemy import func
+    subq = db.query(
+        ExecutionModel.agent_id,
+        func.max(ExecutionModel.timestamp).label("max_ts")
+    ).group_by(ExecutionModel.agent_id).subquery()
+
+    latest_execs = db.query(ExecutionModel).join(
+        subq,
+        (ExecutionModel.agent_id == subq.c.agent_id) & (ExecutionModel.timestamp == subq.c.max_ts)
+    ).all()
+    exec_lookup = {e.agent_id: e for e in latest_execs}
+
+    results = []
+    for a in agents:
+        last_exec = exec_lookup.get(a.id)
+        category = None
+        if last_exec:
+            cmd_lower = last_exec.command.lower()
+            if "whoami" in cmd_lower or "recon" in cmd_lower:
+                category = "recon"
+            elif "sam" in cmd_lower or "dump" in cmd_lower:
+                category = "dump"
+            elif "schtasks" in cmd_lower or "beacon" in cmd_lower:
+                category = "beacon"
+            elif "exfil" in cmd_lower or "copy" in cmd_lower:
+                category = "exfil"
+
+        results.append({
+            "id": a.id,
+            "os": a.os,
+            "ip": a.ip,
+            "status": a.status,
+            "city": a.city,
+            "lat": a.lat,
+            "lng": a.lng,
+            "crypto_key_id": a.crypto_key_id,
+            "redirector_id": a.redirector_id,
+            "last_seen": a.last_seen.isoformat() if a.last_seen else None,
+            "encryption_enabled": enable_encryption,
+            "last_command_category": category
+        })
+    return results
+
+@app.patch("/api/agents/{agent_id}")
+def update_agent(agent_id: str, body: AgentUpdateIn, db: Session = Depends(get_db)):
+    agent = db.query(AgentModel).filter_by(id=agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+        
+    if body.crypto_key_id is not None:
+        agent.crypto_key_id = body.crypto_key_id if body.crypto_key_id != "" else None
+    if body.redirector_id is not None:
+        agent.redirector_id = body.redirector_id if body.redirector_id != "" else None
+        
+    db.commit()
+    
+    # Audit log
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Agent {agent_id} configuration updated: Key={body.crypto_key_id}, Redirector={body.redirector_id}",
+        agent_id=agent_id
+    ))
+    db.commit()
+    
+    return {"status": "success"}
+
+def generate_tshark_packets(db: Session, agent_ip: str, command: str):
+    cmd_lower = command.lower()
+    category = None
+    if "whoami" in cmd_lower or "recon" in cmd_lower:
+        category = "recon"
+    elif "sam" in cmd_lower or "dump" in cmd_lower:
+        category = "dump"
+    elif "schtasks" in cmd_lower or "beacon" in cmd_lower:
+        category = "beacon"
+    elif "exfil" in cmd_lower or "copy" in cmd_lower:
+        category = "exfil"
+    
+    ts = dt.utcnow().strftime("%H:%M:%S.000000")
+    ip = agent_ip
+    
+    lines = []
+    if category == "recon":
+        lines = [
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           TCP    51234 \u2192 135   [SYN] Seq=0 Win=64240 Len=0     \u2190 WMI/RPC port probe",
+            f"{ts}  10.0.0.1          \u2192 {ip:<18} TCP    135 \u2192 49152 [SYN ACK] Seq=0 Ack=1 Win=8192",
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           TCP    49152 \u2192 445 [SYN] Seq=0 Win=64240      \u2190 SMB enumeration",
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           ICMP   74     Echo (ping) request id=0x0001 seq=1",
+            f"{ts}  10.0.0.1          \u2192 {ip:<18} ICMP   74     Echo (ping) reply id=0x0001 seq=1",
+            f"{ts}  {ip:<18} \u2192 255.255.255.255    ARP    42     Who has 192.168.0.1? Tell {ip}  \u2190 ARP host sweep"
+        ]
+    elif category == "dump":
+        lines = [
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           TCP    49200 \u2192 445 [SYN] Seq=0 Win=64240      \u2190 SMB to access SAM",
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           SMB    237    Session Setup AndX Request, NTLMSSP_NEGOTIATE",
+            f"{ts}  10.0.0.1          \u2192 {ip:<18} SMB    195    Session Setup AndX Response, NTLMSSP_CHALLENGE",
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           SMB    458    Session Setup AndX Request, NTLMSSP_AUTH, User: SYSTEM",
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           TCP    49201 \u2192 135  [SYN] Seq=0               \u2190 LSASS via RPC",
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           MSRPC  1048   Call bind: IObjectExporter UUID (LSARPC interface)",
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           MSRPC  2048   LsarQueryInformationPolicy2: PolicyAccountDomainInformation"
+        ]
+    elif category == "beacon":
+        lines = [
+            f"{ts}  {ip:<18} \u2192 104.21.85.12       DNS    73     Standard query A beacon.aligo.internal    \u2190 C2 DNS lookup",
+            f"{ts}  8.8.8.8           \u2192 {ip:<18} DNS    89     Standard query response A 104.21.85.12",
+            f"{ts}  {ip:<18} \u2192 104.21.85.12       TCP    49210 \u2192 443 [SYN] Seq=0 Win=64240      \u2190 HTTPS C2 channel",
+            f"{ts}  {ip:<18} \u2192 104.21.85.12       TLSv1.3 517  Client Hello (SNI: cdn.cloudflare.net)  \u2190 Domain fronting",
+            f"{ts}  104.21.85.12      \u2192 {ip:<18} TLSv1.3 1389 Application Data Len=1024          \u2190 C2 task delivered",
+            f"{ts}  {ip:<18} \u2192 104.21.85.12       TLSv1.3 287  Application Data Len=256          \u2190 Heartbeat ack"
+        ]
+    elif category == "exfil":
+        lines = [
+            f"{ts}  {ip:<18} \u2192 104.21.85.12       DNS    98     Standard query TXT _dmarc.exfil.aligo.co  \u2190 DNS tunnel",
+            f"{ts}  {ip:<18} \u2192 52.84.100.200      TCP    49215 \u2192 443 [SYN] Seq=0 Win=64240      \u2190 HTTPS exfil channel",
+            f"{ts}  {ip:<18} \u2192 52.84.100.200      TLSv1.3 1460 Application Data (PSH) Len=1460  \u2190 Data chunk 1/N",
+            f"{ts}  {ip:<18} \u2192 52.84.100.200      TLSv1.3 1460 Application Data (PSH) Len=1460  \u2190 Data chunk 2/N",
+            f"{ts}  {ip:<18} \u2192 52.84.100.200      TLSv1.3 1460 Application Data (PSH) Len=1460  \u2190 Data chunk 3/N",
+            f"{ts}  {ip:<18} \u2192 52.84.100.200      HTTP   POST /api/upload Content-Type: application/octet-stream",
+            f"{ts}  52.84.100.200     \u2192 {ip:<18} TLSv1.3 89   Application Data Len=24           \u2190 Server ACK (exfil confirmed)"
+        ]
+    else:
+        lines = [
+            f"{ts}  {ip:<18} \u2192 10.0.0.1           TCP    Payload: {command}"
+        ]
+    
+    separator = f"\n\u2500\u2500\u2500\u2500 ATTACK EVENT: {(category or 'command').upper()} \u2192 {ip} at {dt.utcnow().strftime('%H:%M:%S')} \u2500\u2500\u2500\u2500"
+    db.add(NetworkPacketModel(line=separator, interface="any"))
+    for line in lines:
+        db.add(NetworkPacketModel(line=line, interface="any"))
+    db.commit()
 
 @app.post("/api/command")
-async def send_command(command: dict):
-    agent_id = command.get("agent_id")
-    cmd_text = command.get("command")
+async def send_command(payload: AgentCommandIn, db: Session = Depends(get_db)):
+    agent_id = payload.agent_id
+    cmd_text = payload.command
     
+    agent = db.query(AgentModel).filter_by(id=agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+        
+    # Read encryption config
+    encrypt_config = db.query(SystemConfigModel).filter_by(key="enable_encryption").first()
+    enable_encryption = (encrypt_config.value.lower() == "true") if encrypt_config else True
+    
+    # Get active crypto key
+    active_key = db.query(CryptoKeyModel).filter_by(active=True).first()
+    psk = active_key.value if active_key else "aligo-shared-secret-2024-v1"
+    
+    status = "offline"
     if agent_id in active_connections:
-        payload = {"type": "command", "data": cmd_text}
-        
-        # Encrypt if enabled
-        if system_config["enable_encryption"]:
-            psk = crypto_keys["default"]["value"]
-            payload = EncryptionManager.encrypt_command(payload, psk)
-        
-        await active_connections[agent_id].send_text(json.dumps(payload))
-        system_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "message": f"Command '{cmd_text}' dispatched to agent {agent_id}. [Encrypted: {system_config['enable_encryption']}]"
-        })
+        try:
+            ws_payload = {"type": "command", "data": cmd_text}
+            if enable_encryption:
+                ws_payload = EncryptionManager.encrypt_command(ws_payload, psk)
+            
+            await active_connections[agent_id].send_text(json.dumps(ws_payload))
+            status = "sent"
+        except Exception as ex:
+            status = "failed"
+            
+    # Insert Execution Record
+    exec_row = ExecutionModel(
+        agent_id=agent_id,
+        command=cmd_text,
+        status=status,
+        timestamp=dt.utcnow()
+    )
+    db.add(exec_row)
+    db.commit()
+    
+    # Save packet logs in database
+    generate_tshark_packets(db, agent.ip, cmd_text)
+    
+    # Log command event
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Command '{cmd_text}' dispatched to agent {agent_id}. Status: {status}.",
+        agent_id=agent_id
+    ))
+    db.commit()
+    
+    if status == "sent":
         return {"status": "sent", "agent": agent_id}
-    return {"status": "offline", "error": "Agent not connected"}
+    return {"status": status, "error": f"Agent is {status}"}
 
 @app.get("/api/results")
-def get_results():
-    return mock_results
+def get_results(db: Session = Depends(get_db)):
+    # Fetch latest 100 executions
+    executions = db.query(ExecutionModel).order_by(ExecutionModel.timestamp.desc()).limit(100).all()
+    return [{
+        "agent_id": e.agent_id,
+        "command": e.command,
+        "result": e.result,
+        "status": e.status,
+        "timestamp": e.timestamp.isoformat()
+    } for e in executions]
 
-# 1. Playbooks Endpoints
+# Playbooks Endpoints
 @app.get("/api/playbooks")
-def get_playbooks():
-    return list(mock_playbooks.values())
+def get_playbooks(db: Session = Depends(get_db)):
+    playbooks = db.query(PlaybookModel).all()
+    result = []
+    for pb in playbooks:
+        steps = db.query(PlaybookStepModel).filter_by(playbook_id=pb.id).order_by(PlaybookStepModel.step_order).all()
+        result.append({
+            "id": pb.id,
+            "name": pb.name,
+            "description": pb.description,
+            "steps": [{
+                "command": s.command,
+                "delay": s.delay,
+                "mitre_tactics": s.mitre_tactics or []
+            } for s in steps]
+        })
+    return result
 
 @app.post("/api/playbooks")
-def create_playbook(playbook: PlaybookCreateIn):
+def create_playbook(playbook: PlaybookCreateIn, db: Session = Depends(get_db)):
     pb_id = f"pb-{uuid.uuid4().hex[:6]}"
-    new_pb = {
+    new_pb = PlaybookModel(
+        id=pb_id,
+        name=playbook.name,
+        description=playbook.description
+    )
+    db.add(new_pb)
+    db.flush()
+    
+    for idx, step in enumerate(playbook.steps):
+        db.add(PlaybookStepModel(
+            playbook_id=pb_id,
+            command=step.command,
+            delay=step.delay,
+            step_order=idx + 1,
+            mitre_tactics=step.mitre_tactics
+        ))
+    db.commit()
+    
+    # Audit log
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Created playbook '{playbook.name}' with {len(playbook.steps)} steps."
+    ))
+    db.commit()
+    
+    return {
         "id": pb_id,
         "name": playbook.name,
         "description": playbook.description,
-        "steps": [step.model_dump() for step in playbook.steps]
+        "steps": [s.model_dump() for s in playbook.steps]
     }
-    mock_playbooks[pb_id] = new_pb
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Created playbook '{playbook.name}' with {len(playbook.steps)} steps."
-    })
-    return new_pb
 
 @app.post("/api/playbooks/generate")
-def generate_playbook_ai(request: PlaybookGenerateIn):
-    """Generate playbook from natural language using Gemini."""
+def generate_playbook_ai(request: PlaybookGenerateIn, db: Session = Depends(get_db)):
     generated = playbook_generator.generate_playbook(request.request)
-    
     if generated:
         pb_id = f"pb-{uuid.uuid4().hex[:6]}"
-        new_pb = {
-            "id": pb_id,
-            "name": generated.get("name", "AI Generated Playbook"),
-            "description": generated.get("description", ""),
-            "steps": generated.get("steps", [])
+        new_pb = PlaybookModel(
+            id=pb_id,
+            name=generated.get("name", "AI Generated Playbook"),
+            description=generated.get("description", "")
+        )
+        db.add(new_pb)
+        db.flush()
+        
+        steps = []
+        for idx, step in enumerate(generated.get("steps", [])):
+            cmd = step.get("command", "")
+            delay = step.get("delay", 2)
+            tactics = step.get("mitre_tactics", [])
+            db.add(PlaybookStepModel(
+                playbook_id=pb_id,
+                command=cmd,
+                delay=delay,
+                step_order=idx + 1,
+                mitre_tactics=tactics
+            ))
+            steps.append({
+                "command": cmd,
+                "delay": delay,
+                "mitre_tactics": tactics
+            })
+            
+        db.commit()
+        
+        # Log
+        db.add(SystemLogModel(
+            level="INFO",
+            message=f"AI-generated playbook '{new_pb.name}' created from request: {request.request[:50]}..."
+        ))
+        db.commit()
+        
+        return {
+            "status": "success",
+            "playbook": {
+                "id": pb_id,
+                "name": new_pb.name,
+                "description": new_pb.description,
+                "steps": steps
+            }
         }
-        mock_playbooks[pb_id] = new_pb
-        system_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "message": f"AI-generated playbook '{new_pb['name']}' created from request: {request.request[:50]}..."
-        })
-        return {"status": "success", "playbook": new_pb}
-    
     return {"status": "error", "message": "Failed to generate playbook"}
 
 @app.put("/api/playbooks/{playbook_id}")
-def update_playbook(playbook_id: str, playbook: PlaybookCreateIn):
-    if playbook_id not in mock_playbooks:
+def update_playbook(playbook_id: str, playbook: PlaybookCreateIn, db: Session = Depends(get_db)):
+    pb = db.query(PlaybookModel).filter_by(id=playbook_id).first()
+    if not pb:
         raise HTTPException(status_code=404, detail="Playbook not found")
+        
+    pb.name = playbook.name
+    pb.description = playbook.description
     
-    updated_pb = {
+    # Remove old steps
+    db.query(PlaybookStepModel).filter_by(playbook_id=playbook_id).delete()
+    
+    # Add new steps
+    for idx, step in enumerate(playbook.steps):
+        db.add(PlaybookStepModel(
+            playbook_id=playbook_id,
+            command=step.command,
+            delay=step.delay,
+            step_order=idx + 1,
+            mitre_tactics=step.mitre_tactics
+        ))
+        
+    db.commit()
+    
+    # Log
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Updated playbook '{playbook.name}' ({playbook_id})."
+    ))
+    db.commit()
+    
+    return {
         "id": playbook_id,
         "name": playbook.name,
         "description": playbook.description,
-        "steps": [step.model_dump() for step in playbook.steps]
+        "steps": [s.model_dump() for s in playbook.steps]
     }
-    mock_playbooks[playbook_id] = updated_pb
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Updated playbook '{playbook.name}' ({playbook_id})."
-    })
-    return updated_pb
 
 @app.delete("/api/playbooks/{playbook_id}")
-def delete_playbook(playbook_id: str):
-    if playbook_id not in mock_playbooks:
+def delete_playbook(playbook_id: str, db: Session = Depends(get_db)):
+    pb = db.query(PlaybookModel).filter_by(id=playbook_id).first()
+    if not pb:
         raise HTTPException(status_code=404, detail="Playbook not found")
+        
+    pb_name = pb.name
+    db.delete(pb)
+    db.commit()
     
-    pb = mock_playbooks.pop(playbook_id)
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "WARNING",
-        "message": f"Deleted playbook '{pb['name']}' ({playbook_id})."
-    })
+    # Log
+    db.add(SystemLogModel(
+        level="WARNING",
+        message=f"Deleted playbook '{pb_name}' ({playbook_id})."
+    ))
+    db.commit()
+    
     return {"status": "success", "message": f"Deleted playbook {playbook_id}"}
 
-from fastapi import Response
-
 @app.get("/api/playbooks/{playbook_id}/yaml")
-def export_playbook_yaml(playbook_id: str):
-    if playbook_id not in mock_playbooks:
+def export_playbook_yaml(playbook_id: str, db: Session = Depends(get_db)):
+    pb = db.query(PlaybookModel).filter_by(id=playbook_id).first()
+    if not pb:
         raise HTTPException(status_code=404, detail="Playbook not found")
-    pb = mock_playbooks[playbook_id]
-    yaml_str = yaml.dump(pb, sort_keys=False)
+    steps = db.query(PlaybookStepModel).filter_by(playbook_id=playbook_id).order_by(PlaybookStepModel.step_order).all()
+    
+    pb_dict = {
+        "name": pb.name,
+        "description": pb.description,
+        "steps": [{
+            "command": s.command,
+            "delay": s.delay,
+            "mitre_tactics": s.mitre_tactics or []
+        } for s in steps]
+    }
+    yaml_str = yaml.dump(pb_dict, sort_keys=False)
     return Response(content=yaml_str, media_type="application/x-yaml")
 
 class PlaybookYamlImportIn(BaseModel):
     yaml_content: str = Field(..., min_length=1)
 
 @app.post("/api/playbooks/yaml")
-def import_playbook_yaml(import_req: PlaybookYamlImportIn):
+def import_playbook_yaml(import_req: PlaybookYamlImportIn, db: Session = Depends(get_db)):
     try:
         pb_data = yaml.safe_load(import_req.yaml_content)
         pb_id = f"pb-{uuid.uuid4().hex[:6]}"
         
-        new_pb = {
-            "id": pb_id,
-            "name": pb_data.get("name", "Imported Playbook"),
-            "description": pb_data.get("description", ""),
-            "steps": []
-        }
+        new_pb = PlaybookModel(
+            id=pb_id,
+            name=pb_data.get("name", "Imported Playbook"),
+            description=pb_data.get("description", "")
+        )
+        db.add(new_pb)
+        db.flush()
         
-        for step in pb_data.get("steps", []):
-            new_pb["steps"].append({
-                "command": step.get("command", ""),
-                "delay": step.get("delay", 2),
-                "mitre_tactics": step.get("mitre_tactics", [])
+        steps = []
+        for idx, step in enumerate(pb_data.get("steps", [])):
+            cmd = step.get("command", "")
+            delay = step.get("delay", 2)
+            tactics = step.get("mitre_tactics", [])
+            db.add(PlaybookStepModel(
+                playbook_id=pb_id,
+                command=cmd,
+                delay=delay,
+                step_order=idx + 1,
+                mitre_tactics=tactics
+            ))
+            steps.append({
+                "command": cmd,
+                "delay": delay,
+                "mitre_tactics": tactics
             })
             
-        mock_playbooks[pb_id] = new_pb
-        system_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "message": f"Imported playbook '{new_pb['name']}' from YAML."
-        })
-        return new_pb
+        db.commit()
+        
+        # Log
+        db.add(SystemLogModel(
+            level="INFO",
+            message=f"Imported playbook '{new_pb.name}' from YAML."
+        ))
+        db.commit()
+        
+        return {
+            "id": pb_id,
+            "name": new_pb.name,
+            "description": new_pb.description,
+            "steps": steps
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid YAML format: {str(e)}")
 
 # Background execution handler for playbooks
 async def run_playbook_background(execution_id: str, playbook_id: str, agent_ids: List[str]):
-    pb = mock_playbooks.get(playbook_id)
-    if not pb:
-        return
-    
-    steps = pb["steps"]
-    execution_record = next((x for x in playbook_executions if x["id"] == execution_id), None)
-    
-    if not execution_record:
-        return
+    # Get steps from db
+    with SessionLocal() as db:
+        pb = db.query(PlaybookModel).filter_by(id=playbook_id).first()
+        if not pb:
+            return
+        pb_name = pb.name
+        steps = db.query(PlaybookStepModel).filter_by(playbook_id=playbook_id).order_by(PlaybookStepModel.step_order).all()
+        # Save step commands and delays locally for async execution loop
+        step_data = [{"command": s.command, "delay": s.delay} for s in steps]
         
-    execution_record["status"] = "running"
-    
-    for step_idx, step in enumerate(steps):
-        execution_record["currentStep"] = step_idx + 1
-        execution_record["logs"].append({
-            "timestamp": datetime.now().isoformat(),
-            "message": f"Executing Step {step_idx + 1}/{len(steps)}: Running '{step['command']}' with {step['delay']}s delay."
-        })
-        
+        execution_record = db.query(PlaybookExecutionModel).filter_by(id=execution_id).first()
+        if not execution_record:
+            return
+        execution_record.status = "running"
+        db.commit()
+
+        # Read encryption configurations
+        encrypt_config = db.query(SystemConfigModel).filter_by(key="enable_encryption").first()
+        enable_encryption = (encrypt_config.value.lower() == "true") if encrypt_config else True
+        active_key = db.query(CryptoKeyModel).filter_by(active=True).first()
+        psk = active_key.value if active_key else "aligo-shared-secret-2024-v1"
+
+    for step_idx, step in enumerate(step_data):
+        with SessionLocal() as db:
+            execution_record = db.query(PlaybookExecutionModel).filter_by(id=execution_id).first()
+            if not execution_record:
+                break
+            execution_record.current_step = step_idx + 1
+            current_logs = list(execution_record.logs or [])
+            current_logs.append({
+                "timestamp": dt.utcnow().isoformat(),
+                "message": f"Executing Step {step_idx + 1}/{len(step_data)}: Running '{step['command']}' with {step['delay']}s delay."
+            })
+            execution_record.logs = current_logs
+            db.commit()
+
         for agent_id in agent_ids:
             if agent_id in active_connections:
                 try:
                     payload = {"type": "command", "data": step["command"]}
-                    if system_config["enable_encryption"]:
-                        psk = crypto_keys["default"]["value"]
+                    if enable_encryption:
                         payload = EncryptionManager.encrypt_command(payload, psk)
                     
                     await active_connections[agent_id].send_text(json.dumps(payload))
-                    execution_record["logs"].append({
-                        "timestamp": datetime.now().isoformat(),
-                        "message": f"Command dispatched to Agent {agent_id}."
-                    })
+                    
+                    with SessionLocal() as db:
+                        execution_record = db.query(PlaybookExecutionModel).filter_by(id=execution_id).first()
+                        current_logs = list(execution_record.logs or [])
+                        current_logs.append({
+                            "timestamp": dt.utcnow().isoformat(),
+                            "message": f"Command dispatched to Agent {agent_id}."
+                        })
+                        execution_record.logs = current_logs
+                        db.commit()
                 except Exception as ex:
-                    execution_record["logs"].append({
-                        "timestamp": datetime.now().isoformat(),
-                        "message": f"Error dispatching command to Agent {agent_id}: {str(ex)}"
-                    })
+                    with SessionLocal() as db:
+                        execution_record = db.query(PlaybookExecutionModel).filter_by(id=execution_id).first()
+                        current_logs = list(execution_record.logs or [])
+                        current_logs.append({
+                            "timestamp": dt.utcnow().isoformat(),
+                            "message": f"Error dispatching command to Agent {agent_id}: {str(ex)}"
+                        })
+                        execution_record.logs = current_logs
+                        db.commit()
             else:
-                execution_record["logs"].append({
-                    "timestamp": datetime.now().isoformat(),
-                    "message": f"Agent {agent_id} is offline or not found. Skipping."
-                })
-                
+                with SessionLocal() as db:
+                    execution_record = db.query(PlaybookExecutionModel).filter_by(id=execution_id).first()
+                    current_logs = list(execution_record.logs or [])
+                    current_logs.append({
+                        "timestamp": dt.utcnow().isoformat(),
+                        "message": f"Agent {agent_id} is offline. Skipping."
+                    })
+                    execution_record.logs = current_logs
+                    db.commit()
+                    
         await asyncio.sleep(step["delay"])
         
-    execution_record["status"] = "completed"
-    execution_record["completedAt"] = datetime.now().isoformat()
-    execution_record["logs"].append({
-        "timestamp": datetime.now().isoformat(),
-        "message": f"Playbook '{pb['name']}' execution completed successfully."
-    })
-    
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Completed async execution {execution_id} of playbook '{pb['name']}'."
-    })
+    with SessionLocal() as db:
+        execution_record = db.query(PlaybookExecutionModel).filter_by(id=execution_id).first()
+        if execution_record:
+            execution_record.status = "completed"
+            execution_record.completed_at = dt.utcnow()
+            current_logs = list(execution_record.logs or [])
+            current_logs.append({
+                "timestamp": dt.utcnow().isoformat(),
+                "message": f"Playbook '{pb_name}' execution completed successfully."
+            })
+            execution_record.logs = current_logs
+            
+            db.add(SystemLogModel(
+                level="INFO",
+                message=f"Completed async execution {execution_id} of playbook '{pb_name}'."
+            ))
+            db.commit()
 
 @app.post("/api/playbooks/{playbook_id}/execute")
-def execute_playbook(playbook_id: str, execution_request: PlaybookExecuteIn):
-    if playbook_id not in mock_playbooks:
+async def execute_playbook(playbook_id: str, execution_request: PlaybookExecuteIn, db: Session = Depends(get_db)):
+    pb = db.query(PlaybookModel).filter_by(id=playbook_id).first()
+    if not pb:
         raise HTTPException(status_code=404, detail="Playbook not found")
         
-    pb = mock_playbooks[playbook_id]
+    steps_count = db.query(PlaybookStepModel).filter_by(playbook_id=playbook_id).count()
     exec_id = f"exec-{uuid.uuid4().hex[:6]}"
     
-    new_execution = {
-        "id": exec_id,
-        "playbookId": playbook_id,
-        "playbookName": pb["name"],
-        "agentIds": execution_request.agent_ids,
-        "status": "pending",
-        "currentStep": 0,
-        "totalSteps": len(pb["steps"]),
-        "startedAt": datetime.now().isoformat(),
-        "completedAt": None,
-        "logs": [
-            {"timestamp": datetime.now().isoformat(), "message": f"Starting playbook '{pb['name']}' execution."}
-        ]
-    }
+    new_execution = PlaybookExecutionModel(
+        id=exec_id,
+        playbook_id=playbook_id,
+        playbook_name=pb.name,
+        status="pending",
+        current_step=0,
+        total_steps=steps_count,
+        started_at=dt.utcnow(),
+        completed_at=None,
+        agent_ids=execution_request.agent_ids,
+        logs=[{"timestamp": dt.utcnow().isoformat(), "message": f"Starting playbook '{pb.name}' execution."}]
+    )
+    db.add(new_execution)
+    db.commit()
     
-    playbook_executions.append(new_execution)
     asyncio.create_task(run_playbook_background(exec_id, playbook_id, execution_request.agent_ids))
     
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Enqueued playbook '{pb['name']}' execution ({exec_id}) on {len(execution_request.agent_ids)} agents."
-    })
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Enqueued playbook '{pb.name}' execution ({exec_id}) on {len(execution_request.agent_ids)} agents."
+    ))
+    db.commit()
     
     return {"status": "enqueued", "executionId": exec_id}
 
 @app.get("/api/playbooks/executions")
-def get_playbook_executions():
-    return playbook_executions
+def get_playbook_executions(db: Session = Depends(get_db)):
+    executions = db.query(PlaybookExecutionModel).order_by(PlaybookExecutionModel.started_at.desc()).all()
+    return [{
+        "id": e.id,
+        "playbookId": e.playbook_id,
+        "playbookName": e.playbook_name,
+        "agentIds": e.agent_ids,
+        "status": e.status,
+        "currentStep": e.current_step,
+        "totalSteps": e.total_steps,
+        "startedAt": e.started_at.isoformat() if e.started_at else None,
+        "completedAt": e.completed_at.isoformat() if e.completed_at else None,
+        "logs": e.logs
+    } for e in executions]
 
 @app.post("/api/results/decode")
 async def decode_result(result_data: dict):
-    """Decode command result using AI."""
     command = result_data.get("command", "")
     result = result_data.get("result", "")
-    
     decoded = result_decoder.decode_result(command, result)
     
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Decoded command result: {decoded.get('summary', '')}"
-    })
-    
+    with SessionLocal() as db:
+        db.add(SystemLogModel(
+            level="INFO",
+            message=f"Decoded command result: {decoded.get('summary', '')}"
+        ))
+        db.commit()
+        
     return decoded
 
-# 2. Map Endpoints
+# Map Locations Endpoint
 @app.get("/api/agents/locations")
-def get_agents_locations():
-    locations = []
+def get_agents_locations(db: Session = Depends(get_db)):
+    agents = db.query(AgentModel).all()
     
-    for agent_id, info in agents_info.items():
-        locations.append({
-            "agentId": agent_id,
-            "os": info["os"],
-            "ip": info["ip"],
-            "city": info["city"],
-            "lat": info["lat"],
-            "lng": info["lng"],
-            "status": info["status"]
-        })
-        
-    if not locations:
-        mock_agents_seeds = [
-            {'id': 'ag-ant-1000', 'os': 'Windows 10', 'ip': '192.168.10.54', 'status': 'online', 'lat': 8.6193, 'lng': -76.3073, 'city': 'Antioquia'},
-            {'id': 'ag-atl-1001', 'os': 'Linux', 'ip': '192.168.11.127', 'status': 'online', 'lat': 10.3612, 'lng': -74.8706, 'city': 'Atlantico'},
-            {'id': 'ag-san-1002', 'os': 'Windows 10', 'ip': '192.168.12.2', 'status': 'online', 'lat': 4.7951, 'lng': -74.0229, 'city': 'Santafe de bogota d.c'},
-            {'id': 'ag-bol-1003', 'os': 'Linux', 'ip': '192.168.13.127', 'status': 'offline', 'lat': 10.4236, 'lng': -75.1595, 'city': 'Bolivar'},
-            {'id': 'ag-boy-1004', 'os': 'Windows 10', 'ip': '192.168.14.115', 'status': 'online', 'lat': 7.0275, 'lng': -72.2130, 'city': 'Boyaca'},
-            {'id': 'ag-cal-1005', 'os': 'Linux', 'ip': '192.168.15.7', 'status': 'online', 'lat': 5.7527, 'lng': -74.6950, 'city': 'Caldas'},
-            {'id': 'ag-caq-1006', 'os': 'Windows 10', 'ip': '192.168.16.143', 'status': 'online', 'lat': 2.4978, 'lng': -74.6926, 'city': 'Caqueta'},
-            {'id': 'ag-cau-1007', 'os': 'Linux', 'ip': '192.168.17.52', 'status': 'online', 'lat': 2.9751, 'lng': -78.2116, 'city': 'Cauca'},
-            {'id': 'ag-ces-1008', 'os': 'Windows 10', 'ip': '192.168.18.10', 'status': 'online', 'lat': 10.8562, 'lng': -73.2823, 'city': 'Cesar'},
-            {'id': 'ag-cor-1009', 'os': 'Linux', 'ip': '192.168.19.30', 'status': 'online', 'lat': 9.4230, 'lng': -75.8195, 'city': 'Cordoba'},
-            {'id': 'ag-cun-1010', 'os': 'Windows 10', 'ip': '192.168.20.82', 'status': 'online', 'lat': 5.7489, 'lng': -74.3296, 'city': 'Cundinamarca'},
-            {'id': 'ag-cho-1011', 'os': 'Linux', 'ip': '192.168.21.152', 'status': 'offline', 'lat': 8.2717, 'lng': -77.0213, 'city': 'Choco'},
-            {'id': 'ag-hui-1012', 'os': 'Windows 10', 'ip': '192.168.22.57', 'status': 'offline', 'lat': 3.2739, 'lng': -74.6360, 'city': 'Huila'},
-            {'id': 'ag-la -1013', 'os': 'Linux', 'ip': '192.168.23.18', 'status': 'online', 'lat': 12.4235, 'lng': -71.6212, 'city': 'La guajira'},
-            {'id': 'ag-mag-1014', 'os': 'Windows 10', 'ip': '192.168.24.131', 'status': 'online', 'lat': 11.3277, 'lng': -74.0918, 'city': 'Magdalena'},
-            {'id': 'ag-met-1015', 'os': 'Linux', 'ip': '192.168.25.199', 'status': 'online', 'lat': 4.4449, 'lng': -71.0799, 'city': 'Meta'},
-            {'id': 'ag-nar-1016', 'os': 'Windows 10', 'ip': '192.168.26.36', 'status': 'online', 'lat': 2.5774, 'lng': -77.9836, 'city': 'Nariño'},
-            {'id': 'ag-nor-1017', 'os': 'Linux', 'ip': '192.168.27.85', 'status': 'offline', 'lat': 9.1340, 'lng': -73.0178, 'city': 'Norte de santander'},
-            {'id': 'ag-qui-1018', 'os': 'Windows 10', 'ip': '192.168.28.69', 'status': 'online', 'lat': 4.6946, 'lng': -75.6721, 'city': 'Quindio'},
-            {'id': 'ag-ris-1019', 'os': 'Linux', 'ip': '192.168.29.40', 'status': 'online', 'lat': 5.4751, 'lng': -75.8865, 'city': 'Risaralda'},
-            {'id': 'ag-san-1020', 'os': 'Windows 10', 'ip': '192.168.30.153', 'status': 'online', 'lat': 8.1150, 'lng': -73.8001, 'city': 'Santander'},
-            {'id': 'ag-suc-1021', 'os': 'Linux', 'ip': '192.168.31.173', 'status': 'online', 'lat': 9.8849, 'lng': -75.4831, 'city': 'Sucre'},
-            {'id': 'ag-tol-1022', 'os': 'Windows 10', 'ip': '192.168.32.134', 'status': 'online', 'lat': 5.2814, 'lng': -74.8400, 'city': 'Tolima'},
-            {'id': 'ag-val-1023', 'os': 'Linux', 'ip': '192.168.33.179', 'status': 'online', 'lat': 4.9736, 'lng': -76.0838, 'city': 'Valle del cauca'},
-            {'id': 'ag-ara-1024', 'os': 'Windows 10', 'ip': '192.168.34.182', 'status': 'online', 'lat': 7.0593, 'lng': -70.6987, 'city': 'Arauca'},
-            {'id': 'ag-cas-1025', 'os': 'Linux', 'ip': '192.168.35.49', 'status': 'online', 'lat': 6.2479, 'lng': -70.1725, 'city': 'Casanare'},
-            {'id': 'ag-put-1026', 'os': 'Windows 10', 'ip': '192.168.36.131', 'status': 'offline', 'lat': 1.3164, 'lng': -76.5781, 'city': 'Putumayo'},
-            {'id': 'ag-ama-1027', 'os': 'Linux', 'ip': '192.168.37.183', 'status': 'online', 'lat': 0.1186, 'lng': -71.3864, 'city': 'Amazonas'},
-            {'id': 'ag-gua-1028', 'os': 'Windows 10', 'ip': '192.168.38.123', 'status': 'offline', 'lat': 3.8605, 'lng': -67.6878, 'city': 'Guainia'},
-            {'id': 'ag-gua-1029', 'os': 'Linux', 'ip': '192.168.39.177', 'status': 'online', 'lat': 2.8375, 'lng': -71.2646, 'city': 'Guaviare'},
-            {'id': 'ag-vau-1030', 'os': 'Windows 10', 'ip': '192.168.40.90', 'status': 'online', 'lat': 1.9853, 'lng': -70.1130, 'city': 'Vaupes'},
-            {'id': 'ag-vic-1031', 'os': 'Linux', 'ip': '192.168.41.25', 'status': 'online', 'lat': 6.2795, 'lng': -67.7969, 'city': 'Vichada'},
-            {'id': 'ag-arc-1032', 'os': 'Windows 10', 'ip': '192.168.42.100', 'status': 'online', 'lat': 12.5946, 'lng': -81.7130, 'city': 'Archipielago de san andres providencia y santa catalina'}
-        ]
-        for seed in mock_agents_seeds:
-            locations.append({
-                "agentId": seed["id"],
-                "os": seed["os"],
-                "ip": seed["ip"],
-                "city": seed["city"],
-                "lat": seed["lat"],
-                "lng": seed["lng"],
-                "status": seed["status"]
-            })
-            
-    return locations
+    # Optimized latest executions query using JOIN to avoid N+1 queries on map load
+    from sqlalchemy import func
+    subq = db.query(
+        ExecutionModel.agent_id,
+        func.max(ExecutionModel.timestamp).label("max_ts")
+    ).group_by(ExecutionModel.agent_id).subquery()
 
-# 3. Redirector Endpoints
+    latest_execs = db.query(ExecutionModel).join(
+        subq,
+        (ExecutionModel.agent_id == subq.c.agent_id) & (ExecutionModel.timestamp == subq.c.max_ts)
+    ).all()
+    exec_lookup = {e.agent_id: e for e in latest_execs}
+
+    results = []
+    for a in agents:
+        last_exec = exec_lookup.get(a.id)
+        category = None
+        if last_exec:
+            cmd_lower = last_exec.command.lower()
+            if "whoami" in cmd_lower or "recon" in cmd_lower:
+                category = "recon"
+            elif "sam" in cmd_lower or "dump" in cmd_lower:
+                category = "dump"
+            elif "schtasks" in cmd_lower or "beacon" in cmd_lower:
+                category = "beacon"
+            elif "exfil" in cmd_lower or "copy" in cmd_lower:
+                category = "exfil"
+
+        results.append({
+            "agentId": a.id,
+            "os": a.os,
+            "ip": a.ip,
+            "city": a.city,
+            "lat": a.lat,
+            "lng": a.lng,
+            "status": a.status,
+            "last_command_category": category
+        })
+    return results
+
+# Redirectors Endpoints
 @app.get("/api/redirectors")
-def get_redirectors():
-    return redirector_simulator.get_redirectors()
+def get_redirectors(db: Session = Depends(get_db)):
+    redirectors = db.query(RedirectorModel).all()
+    return [{
+        "id": r.id,
+        "name": r.name,
+        "host": r.host,
+        "port": r.port,
+        "uplinkId": r.uplink_id,
+        "status": r.status,
+        "createdAt": r.created_at.isoformat(),
+        "latencyMs": r.latency_ms,
+        "agentsCount": r.agents_count,
+        "throughputMbps": r.throughput_mbps
+    } for r in redirectors]
 
 @app.post("/api/redirectors")
-def create_redirector(request: RedirectorCreateIn):
-    redir = redirector_simulator.create_redirector(request.name, request.host, request.port, request.uplink_id)
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Created redirector '{request.name}' ({request.host}:{request.port})."
-    })
-    return redir
+def create_redirector(request: RedirectorCreateIn, db: Session = Depends(get_db)):
+    redir_id = f"redir-{uuid.uuid4().hex[:8]}"
+    new_redir = RedirectorModel(
+        id=redir_id,
+        name=request.name,
+        host=request.host,
+        port=request.port,
+        status="online",
+        uplink_id=request.uplink_id if request.uplink_id != "" else None,
+        created_at=dt.utcnow(),
+        latency_ms=0,
+        agents_count=0,
+        throughput_mbps=0.0
+    )
+    db.add(new_redir)
+    db.commit()
+    
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Created redirector '{request.name}' ({request.host}:{request.port})."
+    ))
+    db.commit()
+    
+    return {
+        "id": new_redir.id,
+        "name": new_redir.name,
+        "host": new_redir.host,
+        "port": new_redir.port,
+        "uplinkId": new_redir.uplink_id,
+        "status": new_redir.status,
+        "createdAt": new_redir.created_at.isoformat(),
+        "latencyMs": new_redir.latency_ms,
+        "agentsCount": new_redir.agents_count,
+        "throughputMbps": new_redir.throughput_mbps
+    }
 
 @app.get("/api/redirectors/{redir_id}")
-def get_redirector(redir_id: str):
-    redir = redirector_simulator.get_redirector(redir_id)
-    if not redir:
+def get_redirector(redir_id: str, db: Session = Depends(get_db)):
+    r = db.query(RedirectorModel).filter_by(id=redir_id).first()
+    if not r:
         raise HTTPException(status_code=404, detail="Redirector not found")
-    return redir
+    return {
+        "id": r.id,
+        "name": r.name,
+        "host": r.host,
+        "port": r.port,
+        "uplinkId": r.uplink_id,
+        "status": r.status,
+        "createdAt": r.created_at.isoformat(),
+        "latencyMs": r.latency_ms,
+        "agentsCount": r.agents_count,
+        "throughputMbps": r.throughput_mbps
+    }
 
 @app.put("/api/redirectors/{redir_id}/status")
-def update_redirector_status(redir_id: str, status_update: dict):
+def update_redirector_status(redir_id: str, status_update: dict, db: Session = Depends(get_db)):
     new_status = status_update.get("status", "online")
-    if redirector_simulator.update_redirector_status(redir_id, new_status):
-        system_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "message": f"Updated redirector {redir_id} status to {new_status}."
-        })
-        return {"status": "success"}
-    raise HTTPException(status_code=404, detail="Redirector not found")
+    r = db.query(RedirectorModel).filter_by(id=redir_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Redirector not found")
+    
+    r.status = new_status
+    db.commit()
+    
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Updated redirector {redir_id} status to {new_status}."
+    ))
+    db.commit()
+    return {"status": "success"}
 
 @app.get("/api/agents/{agent_id}/redirector-chain")
-def get_agent_redirector_chain(agent_id: str):
-    return redirector_simulator.get_redirector_chain(agent_id)
+def get_agent_redirector_chain(agent_id: str, db: Session = Depends(get_db)):
+    agent = db.query(AgentModel).filter_by(id=agent_id).first()
+    if not agent or not agent.redirector_id:
+        return []
+    
+    chain = []
+    curr_id = agent.redirector_id
+    visited = set()
+    while curr_id and curr_id not in visited:
+        visited.add(curr_id)
+        r = db.query(RedirectorModel).filter_by(id=curr_id).first()
+        if not r:
+            break
+        chain.append({
+            "id": r.id,
+            "name": r.name,
+            "host": r.host,
+            "port": r.port,
+            "uplinkId": r.uplink_id,
+            "status": r.status,
+            "createdAt": r.created_at.isoformat(),
+            "latencyMs": r.latency_ms,
+            "agentsCount": r.agents_count,
+            "throughputMbps": r.throughput_mbps
+        })
+        curr_id = r.uplink_id
+    return chain
 
 @app.delete("/api/redirectors/{redir_id}")
-def delete_redirector(redir_id: str):
-    if redirector_simulator.delete_redirector(redir_id):
-        system_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "WARNING",
-            "message": f"Deleted redirector {redir_id}."
-        })
-        return {"status": "success"}
-    raise HTTPException(status_code=404, detail="Redirector not found")
+def delete_redirector(redir_id: str, db: Session = Depends(get_db)):
+    r = db.query(RedirectorModel).filter_by(id=redir_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Redirector not found")
+    
+    db.delete(r)
+    db.commit()
+    
+    db.add(SystemLogModel(
+        level="WARNING",
+        message=f"Deleted redirector {redir_id}."
+    ))
+    db.commit()
+    return {"status": "success"}
 
-# 4. Cryptographic Keys Endpoints
+# Cryptographic Keys Endpoints
 @app.get("/api/crypto/keys")
-def get_crypto_keys():
-    return list(crypto_keys.values())
+def get_crypto_keys(db: Session = Depends(get_db)):
+    keys = db.query(CryptoKeyModel).order_by(CryptoKeyModel.created_at.desc()).all()
+    return [{
+        "id": k.id,
+        "name": k.name,
+        "value": k.value,
+        "algorithm": k.algorithm,
+        "createdAt": k.created_at.isoformat(),
+        "rotatedAt": k.rotated_at.isoformat(),
+        "active": k.active
+    } for k in keys]
 
 @app.post("/api/crypto/keys")
-def create_crypto_key(key_request: CryptoKeyIn):
+def create_crypto_key(key_request: CryptoKeyIn, db: Session = Depends(get_db)):
     key_id = f"key-{uuid.uuid4().hex[:8]}"
     import secrets
-    new_key = {
-        "id": key_id,
-        "name": key_request.name,
-        "value": secrets.token_hex(16),  # Generate random key
-        "algorithm": key_request.algorithm,
-        "createdAt": datetime.now().isoformat(),
-        "rotatedAt": datetime.now().isoformat(),
-        "active": False
+    new_key = CryptoKeyModel(
+        id=key_id,
+        name=key_request.name,
+        value=secrets.token_hex(16),
+        algorithm=key_request.algorithm,
+        created_at=dt.utcnow(),
+        rotated_at=dt.utcnow(),
+        active=False
+    )
+    db.add(new_key)
+    db.commit()
+    
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Created cryptographic key '{key_request.name}' ({key_request.algorithm})."
+    ))
+    db.commit()
+    
+    return {
+        "id": new_key.id,
+        "name": new_key.name,
+        "value": new_key.value,
+        "algorithm": new_key.algorithm,
+        "createdAt": new_key.created_at.isoformat(),
+        "rotatedAt": new_key.rotated_at.isoformat(),
+        "active": new_key.active
     }
-    crypto_keys[key_id] = new_key
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Created cryptographic key '{key_request.name}' ({key_request.algorithm})."
-    })
-    return new_key
 
 @app.put("/api/crypto/keys/{key_id}/activate")
-def activate_crypto_key(key_id: str):
-    if key_id not in crypto_keys:
+def activate_crypto_key(key_id: str, db: Session = Depends(get_db)):
+    key = db.query(CryptoKeyModel).filter_by(id=key_id).first()
+    if not key:
         raise HTTPException(status_code=404, detail="Key not found")
     
     # Deactivate all others
-    for k in crypto_keys.values():
-        k["active"] = False
+    db.query(CryptoKeyModel).update({CryptoKeyModel.active: False})
     
     # Activate this one
-    crypto_keys[key_id]["active"] = True
-    crypto_keys[key_id]["rotatedAt"] = datetime.now().isoformat()
+    key.active = True
+    key.rotated_at = dt.utcnow()
+    db.commit()
     
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"Activated cryptographic key {key_id}. All agents must update PSK."
-    })
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"Activated cryptographic key {key_id}. All agents must update PSK."
+    ))
+    db.commit()
     return {"status": "activated"}
 
 @app.delete("/api/crypto/keys/{key_id}")
-def delete_crypto_key(key_id: str):
-    if key_id not in crypto_keys:
+def delete_crypto_key(key_id: str, db: Session = Depends(get_db)):
+    key = db.query(CryptoKeyModel).filter_by(id=key_id).first()
+    if not key:
         raise HTTPException(status_code=404, detail="Key not found")
     
-    if crypto_keys[key_id]["active"]:
+    if key.active:
         raise HTTPException(status_code=400, detail="Cannot delete active key")
     
-    del crypto_keys[key_id]
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "WARNING",
-        "message": f"Deleted cryptographic key {key_id}."
-    })
+    db.delete(key)
+    db.commit()
+    
+    db.add(SystemLogModel(
+        level="WARNING",
+        message=f"Deleted cryptographic key {key_id}."
+    ))
+    db.commit()
     return {"status": "deleted"}
 
-# 5. Settings Endpoints
+# Settings Endpoints
 @app.get("/api/config")
-def get_config():
-    return system_config
+def get_config(db: Session = Depends(get_db)):
+    configs = db.query(SystemConfigModel).all()
+    config_dict = {c.key: c.value for c in configs}
+    return {
+        "security_level": config_dict.get("security_level", "High"),
+        "beacon_interval": int(config_dict.get("beacon_interval", 10)),
+        "log_level": config_dict.get("log_level", "INFO"),
+        "enable_ai": config_dict.get("enable_ai", "True").lower() == "true",
+        "enable_encryption": config_dict.get("enable_encryption", "True").lower() == "true"
+    }
 
 @app.put("/api/config")
-def update_config(config: ConfigUpdateIn):
-    system_config["security_level"] = config.security_level
-    system_config["beacon_interval"] = config.beacon_interval
-    system_config["log_level"] = config.log_level
-    system_config["enable_ai"] = config.enable_ai
-    system_config["enable_encryption"] = config.enable_encryption
+def update_config(config: ConfigUpdateIn, db: Session = Depends(get_db)):
+    updates = {
+        "security_level": config.security_level,
+        "beacon_interval": str(config.beacon_interval),
+        "log_level": config.log_level,
+        "enable_ai": "True" if config.enable_ai else "False",
+        "enable_encryption": "True" if config.enable_encryption else "False"
+    }
     
-    system_logs.append({
-        "timestamp": datetime.now().isoformat(),
-        "level": "INFO",
-        "message": f"System configurations updated: SecLevel={config.security_level}, Interval={config.beacon_interval}s, AI={config.enable_ai}, Encryption={config.enable_encryption}"
-    })
-    return system_config
+    for k, v in updates.items():
+        row = db.query(SystemConfigModel).filter_by(key=k).first()
+        if row:
+            row.value = v
+        else:
+            db.add(SystemConfigModel(key=k, value=v))
+            
+    db.commit()
+    
+    db.add(SystemLogModel(
+        level="INFO",
+        message=f"System configurations updated: SecLevel={config.security_level}, Interval={config.beacon_interval}s, AI={config.enable_ai}, Encryption={config.enable_encryption}"
+    ))
+    db.commit()
+    
+    return {
+        "security_level": config.security_level,
+        "beacon_interval": config.beacon_interval,
+        "log_level": config.log_level,
+        "enable_ai": config.enable_ai,
+        "enable_encryption": config.enable_encryption
+    }
 
 @app.get("/api/system/status")
-def get_system_status():
+def get_system_status(db: Session = Depends(get_db)):
     uptime = int(time.time() - server_start_time)
     cpu_usage = int(15 + (time.time() % 30))
     ram_usage = int(120 + (time.time() % 45))
+    
+    active_agents = db.query(AgentModel).filter_by(status="online").count()
+    total_playbooks = db.query(PlaybookModel).count()
+    active_redirectors = db.query(RedirectorModel).filter_by(status="online").count()
+    
+    encrypt_config = db.query(SystemConfigModel).filter_by(key="enable_encryption").first()
+    enable_encryption = (encrypt_config.value.lower() == "true") if encrypt_config else True
     
     return {
         "status": "healthy",
         "uptime": uptime,
         "cpu": cpu_usage,
         "ram": ram_usage,
-        "activeAgents": len([x for x in agents_info.values() if x["status"] == "online"]),
-        "totalPlaybooks": len(mock_playbooks),
+        "activeAgents": active_agents,
+        "totalPlaybooks": total_playbooks,
         "dbConnection": "Connected (Neon DB Engine Active)",
-        "redirectorsActive": len([r for r in redirector_simulator.redirectors.values() if r.status.value == "online"]),
-        "encryptionStatus": "ENABLED" if system_config["enable_encryption"] else "DISABLED"
+        "redirectorsActive": active_redirectors,
+        "encryptionStatus": "ENABLED" if enable_encryption else "DISABLED"
     }
 
 @app.post("/api/system/diagnose")
-def trigger_diagnostics():
+def trigger_diagnostics(db: Session = Depends(get_db)):
     diagnostic_id = f"diag-{uuid.uuid4().hex[:6]}"
-    diag_time = datetime.now().isoformat()
+    diag_time = dt.utcnow()
+    
+    active_keys_count = db.query(CryptoKeyModel).count()
+    redirectors_count = db.query(RedirectorModel).count()
     
     diagnostics_steps = [
-        {"level": "INFO", "msg": f"[{diagnostic_id}] Diagnostics triggered by Administrator."},
-        {"level": "INFO", "msg": f"[{diagnostic_id}] Verifying Neon Database connection... Connection latency is 42ms. OK."},
-        {"level": "INFO", "msg": f"[{diagnostic_id}] Auditing cryptographic keys... {len(crypto_keys)} keys found. Active key valid. OK."},
-        {"level": "INFO", "msg": f"[{diagnostic_id}] Checking redirector network... {len(redirector_simulator.redirectors)} redirectors online. OK."},
-        {"level": "INFO", "msg": f"[{diagnostic_id}] Checking active agent handshake protocols... No anomalies detected. OK."},
-        {"level": "INFO", "msg": f"[{diagnostic_id}] Testing endpoint routing latency... GET /api/agents response time 8ms. OK."},
-        {"level": "INFO", "msg": f"[{diagnostic_id}] System integrity check: 100% HEALTHY."}
+        f"[{diagnostic_id}] Diagnostics triggered by Administrator.",
+        f"[{diagnostic_id}] Verifying Neon Database connection... Connection latency is 42ms. OK.",
+        f"[{diagnostic_id}] Auditing cryptographic keys... {active_keys_count} keys found. Active key valid. OK.",
+        f"[{diagnostic_id}] Checking redirector network... {redirectors_count} redirectors online. OK.",
+        f"[{diagnostic_id}] Checking active agent handshake protocols... No anomalies detected. OK.",
+        f"[{diagnostic_id}] Testing endpoint routing latency... GET /api/agents response time 8ms. OK.",
+        f"[{diagnostic_id}] System integrity check: 100% HEALTHY."
     ]
     
     for step in diagnostics_steps:
-        system_logs.append({
-            "timestamp": diag_time,
-            "level": step["level"],
-            "message": step["msg"]
-        })
-        
+        db.add(SystemLogModel(
+            timestamp=diag_time,
+            level="INFO",
+            message=step
+        ))
+    db.commit()
     return {"status": "completed", "diagnosticId": diagnostic_id}
 
 @app.get("/api/system/logs")
-def get_system_logs():
-    return sorted(system_logs, key=lambda x: x["timestamp"], reverse=True)
+def get_system_logs(db: Session = Depends(get_db)):
+    logs = db.query(SystemLogModel).order_by(SystemLogModel.timestamp.desc()).limit(150).all()
+    return [{
+        "timestamp": l.timestamp.isoformat(),
+        "level": l.level,
+        "message": l.message
+    } for l in logs]
 
-# 6. AI Chat integration
+@app.get("/api/tshark/packets")
+def get_tshark_packets(db: Session = Depends(get_db)):
+    packets = db.query(NetworkPacketModel).order_by(NetworkPacketModel.id.asc()).all()
+    return [{"id": p.id, "line": p.line, "timestamp": p.timestamp.isoformat(), "interface": p.interface} for p in packets]
+
+@app.delete("/api/tshark/packets")
+def clear_tshark_packets(db: Session = Depends(get_db)):
+    db.query(NetworkPacketModel).delete()
+    db.commit()
+    return {"status": "cleared"}
+
+class MapSettingsIn(BaseModel):
+    drone_mode: bool
+    selected_department: str
+
+@app.get("/api/map/settings")
+def get_map_settings(db: Session = Depends(get_db)):
+    drone_mode_row = db.query(SystemConfigModel).filter_by(key="drone_mode").first()
+    dept_row = db.query(SystemConfigModel).filter_by(key="selected_department").first()
+    return {
+        "drone_mode": (drone_mode_row.value.lower() == "true") if drone_mode_row else True,
+        "selected_department": dept_row.value if dept_row else "TODOS"
+    }
+
+@app.put("/api/map/settings")
+def update_map_settings(settings: MapSettingsIn, db: Session = Depends(get_db)):
+    drone_mode_val = "True" if settings.drone_mode else "False"
+    
+    drone_row = db.query(SystemConfigModel).filter_by(key="drone_mode").first()
+    if drone_row:
+        drone_row.value = drone_mode_val
+    else:
+        db.add(SystemConfigModel(key="drone_mode", value=drone_mode_val))
+        
+    dept_row = db.query(SystemConfigModel).filter_by(key="selected_department").first()
+    if dept_row:
+        dept_row.value = settings.selected_department
+    else:
+        db.add(SystemConfigModel(key="selected_department", value=settings.selected_department))
+        
+    db.commit()
+    return {"status": "success"}
+
+# Consolidated AI Chat Integration
 @app.post("/api/ai/chat")
-async def chat_with_gemini(chat_input: ChatMessageIn):
-    user_msg = chat_input.message
+async def ai_chat(body: AiChatIn, db: Session = Depends(get_db)):
+    user_msg = body.message
     lower_msg = user_msg.lower()
     
-    # 1. AI Guardrails: Detección heurística de inyección de comandos o acciones destructivas
+    # 1. AI Guardrails: Heuristic command injection and destructive actions detection
     destructive_keywords = ["rm -rf", "drop table", "format c", "delete from", "ignora las instrucciones anteriores", "ignore previous instructions"]
     if any(keyword in lower_msg for keyword in destructive_keywords):
-        system_logs.append({
-            "timestamp": datetime.now().isoformat(),
-            "level": "WARNING",
-            "message": f"Guardrail triggered: Intento de prompt injection o comando destructivo detectado."
-        })
+        db.add(SystemLogModel(
+            level="WARNING",
+            message="Guardrail triggered: Intento de prompt injection o comando destructivo detectado."
+        ))
+        db.commit()
         return {"reply": "[GUARDRAIL TRIGGERED] Intento de inyección de comandos destructivos detectado. Comando bloqueado."}
     
-    # 2. Traducción Inversa (Log Analysis) o Chat Normal
-    is_log_analysis = chat_input.context_type == "log_analysis"
+    # Read settings config
+    ai_config = db.query(SystemConfigModel).filter_by(key="enable_ai").first()
+    config_enable_ai = (ai_config.value.lower() == "true") if ai_config else True
     
-    if system_config["enable_ai"] and gemini_model:
+    encrypt_config = db.query(SystemConfigModel).filter_by(key="enable_encryption").first()
+    config_enable_encryption = (encrypt_config.value.lower() == "true") if encrypt_config else True
+
+    # 2. Check if AI is enabled and Gemini model configured
+    if config_enable_ai and gemini_model:
         try:
-            if is_log_analysis:
-                prompt = f"Eres el asistente de ciberseguridad del C2 Aligo. Analiza los siguientes logs crudos extraídos de un agente y genera un reporte técnico ejecutivo conciso en español identificando riesgos, configuraciones inseguras o puntos de interés táctico.\n\nLogs:\n{chat_input.context_data}"
-            else:
-                prompt = f"Eres el asistente de IA integrado en el C2 Aligo. Responde siempre en español de forma concisa y profesional.\n\nUsuario: {user_msg}"
+            session_id = body.session_id
+            
+            # Start Gemini chat session if not cached
+            if session_id not in chat_sessions:
+                chat_sessions[session_id] = gemini_model.start_chat(history=[
+                    {
+                        "role": "user",
+                        "parts": [ALIGO_C2_SYSTEM_PROMPT]
+                    },
+                    {
+                        "role": "model",
+                        "parts": ["Entendido. Soy el Asistente SecOps de Aligo C2. Tengo pleno contexto del proyecto: plataforma C2, agentes en Colombia, payloads disponibles (RECON, DUMP, BEACON, EXFIL) y el framework MITRE ATT&CK. ¿En qué puedo ayudarte?"]
+                    }
+                ])
                 
-            response = await asyncio.to_thread(gemini_model.generate_content, prompt)
-            return {"reply": response.text.strip()}
+            chat = chat_sessions[session_id]
+            
+            if body.context_type == "log_analysis":
+                user_message = f"Eres el asistente de ciberseguridad del C2 Aligo. Analiza los siguientes logs crudos extraídos de un agente y genera un reporte técnico ejecutivo conciso en español identificando riesgos, configuraciones inseguras o puntos de interés táctico.\n\nLogs:\n{body.context_data}"
+            else:
+                user_message = body.message
+                if body.attack_context:
+                    ctx = body.attack_context
+                    user_message = (
+                        f"[CONTEXTO DE ATAQUE EJECUTADO]\n"
+                        f"- Payload: {ctx.get('commandLabel', 'N/A')} ({ctx.get('commandId', 'N/A').upper()})\n"
+                        f"- Agente afectado: {ctx.get('agentId', 'N/A')} | IP: {ctx.get('ip', 'N/A')} | Ciudad: {ctx.get('city', 'N/A')}\n"
+                        f"- Timestamp: {ctx.get('timestamp', 'N/A')}\n\n"
+                        f"Pregunta del operador: {body.message}"
+                    )
+            
+            response = await asyncio.to_thread(chat.send_message, user_message)
+            return {"reply": response.text.strip(), "session_id": session_id}
+            
         except Exception as e:
-            system_logs.append({
-                "timestamp": datetime.now().isoformat(),
-                "level": "ERROR",
-                "message": f"Gemini API execution failed: {str(e)}. Falling back to mock assistant."
-            })
+            db.add(SystemLogModel(
+                level="ERROR",
+                message=f"Gemini API execution failed: {str(e)}. Falling back to mock assistant."
+            ))
+            db.commit()
+            
+    # 3. Mock assistant fallbacks
+    await asyncio.sleep(0.5)
     
-    await asyncio.sleep(1)
-    
-    # Mock Assistant Fallbacks
-    if is_log_analysis:
-        return {"reply": f"**Reporte Técnico Simulado**\n\nHe analizado los logs enviados. Se han detectado configuraciones de red que podrían indicar exposición de puertos internos (Simulación). El output original fue de {len(chat_input.context_data or '')} caracteres."}
+    if body.context_type == "log_analysis":
+        return {"reply": f"**Reporte Técnico Simulado**\n\nHe analizado los logs enviados. Se han detectado configuraciones de red que podrían indicar exposición de puertos internos (Simulación). El output original fue de {len(body.context_data or '')} caracteres."}
         
     if "ayuda" in lower_msg or "help" in lower_msg:
         reply = "Puedo ayudarte con: 1) Analizar resultados de comandos, 2) Generar playbooks, 3) Gestionar claves de encriptación, 4) Monitorear redirectores."
     elif "agente" in lower_msg or "agent" in lower_msg:
-        active = len([x for x in agents_info.values() if x['status'] == 'online'])
-        reply = f"Actualmente hay {active} agentes activos. Recomiendo ejecutar un playbook de reconocimiento básico."
+        active_cnt = db.query(AgentModel).filter_by(status="online").count()
+        reply = f"Actualmente hay {active_cnt} agentes activos. Recomiendo ejecutar un playbook de reconocimiento básico."
     elif "playbook" in lower_msg:
         reply = "Los playbooks te permiten automatizar secuencias de comandos. Puedo generar uno desde descripción en lenguaje natural."
     elif "encriptación" in lower_msg or "encryption" in lower_msg:
-        reply = f"La encriptación está {'ACTIVADA' if system_config['enable_encryption'] else 'DESACTIVADA'}. Tienes {len(crypto_keys)} claves disponibles. Puedes rotar claves en Configuración."
+        reply = f"La encriptación está {'ACTIVADA' if config_enable_encryption else 'DESACTIVADA'}."
     elif "redirector" in lower_msg:
-        active_redirs = len([r for r in redirector_simulator.redirectors.values() if r.status.value == "online"])
+        active_redirs = db.query(RedirectorModel).filter_by(status="online").count()
         reply = f"Tienes {active_redirs} redirectores activos en la infraestructura. Consulta el mapa táctico para ver conexiones."
     else:
-        reply = f"[Simulación C2]: He recibido tu mensaje: '{user_msg}'. En producción, esto generaría comandos optimizados."
+        reply = f"[Simulación C2]: He recibido tu mensaje: '{body.message}'. En producción, esto generaría comandos optimizados."
         
-    return {"reply": reply}
+    return {"reply": reply, "session_id": body.session_id}
+
+@app.delete("/api/ai/chat/{session_id}")
+async def reset_chat_session(session_id: str):
+    if session_id in chat_sessions:
+        del chat_sessions[session_id]
+    return {"status": "reset", "session_id": session_id}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

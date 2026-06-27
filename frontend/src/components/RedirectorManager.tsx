@@ -106,9 +106,22 @@ export const RedirectorManager: React.FC = () => {
             type="number"
             placeholder="Puerto"
             value={newRedir.port}
-            onChange={(e) => setNewRedir({ ...newRedir, port: parseInt(e.target.value) })}
+            onChange={(e) => setNewRedir({ ...newRedir, port: parseInt(e.target.value) || 0 })}
             className="form-input"
           />
+          <select
+            value={newRedir.uplink_id}
+            onChange={(e) => setNewRedir({ ...newRedir, uplink_id: e.target.value })}
+            className="form-input"
+            style={{ backgroundColor: '#18181b', color: '#f4f4f5', border: '1px solid #27272a', borderRadius: '0.375rem', padding: '0.5rem' }}
+          >
+            <option value="">Ninguno (Proxy de entrada direct)</option>
+            {redirectors.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name} ({r.host}:{r.port})
+              </option>
+            ))}
+          </select>
           <button onClick={handleCreateRedirector} className="btn-primary">
             Crear
           </button>

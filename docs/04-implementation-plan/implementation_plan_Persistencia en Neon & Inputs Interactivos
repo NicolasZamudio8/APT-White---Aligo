@@ -1,0 +1,189 @@
+# Plan de Implementación — Persistencia Completa en Base de Datos Neon (PostgreSQL)
+
+Este documento detalla la arquitectura, el modelo de datos y el plan de migración para pasar todo el estado en memoria de la plataforma Aligo C2 a una base de datos PostgreSQL administrada en **Neon**, utilizando la cadena de conexión `DATABASE_URL` provista en el `.env`.
+
+---
+
+## 1. Decisiones de Arquitectura y Relaciones de Negocio (Reto Aligo)
+
+Para cumplir con el nivel avanzado y el **Nivel Aligo** del reto (desarrollo de infraestructura distribuida, múltiples redirectores, cifrado robusto y trazabilidad completa) sin introducir ciclos/bucles de relaciones complejas ni sobre-ingeniería innecesaria en la base de datos, hemos diseñado un esquema acíclico y pragmático:
+
+### Respuestas de Diseño y Lógica de Negocio:
+
+1. **Relación Agente - Playbook (Desacoplada y Sin Ciclos)**:
+   - En lugar de una tabla de unión física `PLAYBOOK_EXECUTION_AGENT` y relacionar cada comando individual (`EXECUTION`) con playbooks (lo cual crearía bucles redundantes con agentes), modelamos las ejecuciones de playbooks de forma independiente.
+   - Guardamos los IDs de los agentes destinatarios como un arreglo **`JSONB` (`agent_ids`)** dentro de **`PLAYBOOK_EXECUTION`**. Esto se alinea 1:1 con la estructura actual del frontend y el estado de Zustand, facilitando las operaciones del API.
+   - Las ejecuciones de playbooks continúan guardando sus logs agregados dentro de la columna `logs` (JSON) en la tabla `PLAYBOOK_EXECUTION`, aislando los flujos automatizados de la tabla de comandos interactivos unitarios (`EXECUTION`).
+
+2. **Esquema de Llaves Criptográficas por Agente (`CRYPTO_KEY`):**
+   - Añadimos una clave foránea `crypto_key_id` (nullable) a la tabla `AGENT` para soportar tanto una **llave global por defecto** (fallback del sistema) como **llaves criptográficas dedicadas por agente** para aislamiento de comunicaciones.
+
+3. **Trazabilidad de la Red de Redirectores (`REDIRECTOR`):**
+   - Cada agente (`AGENT`) cuenta con un campo `redirector_id` (nullable) para asociarle el proxy por el cual está balizando. Esto define la topología de red activa.
+   - La tabla `REDIRECTOR` cuenta con una columna autorreferencial `uplink_id` (nullable) que define la jerarquía de proxies/redireccionadores en cascada.
+
+4. **Logs de Auditoría con Filtros**:
+   - `SYSTEM_LOG` cuenta con columnas `agent_id` y `playbook_execution_id` (ambas nullables) para enlazar eventos generales del servidor C2 con las entidades relacionales implicadas. Los logs referidos a redirectores se guardarán de forma simplificada como texto plano en el mensaje (desacoplados de FK).
+
+---
+
+## 2. Modelado de Datos (Esquema Relacional 3NF Simplificado)
+
+El esquema se implementará utilizando SQLAlchemy 2.0 y contendrá claves foráneas y cascadas para garantizar la integridad referencial.
+
+```mermaid
+erDiagram
+    SYSTEM_CONFIG {
+        VARCHAR key PK
+        VARCHAR value
+        VARCHAR description
+        TIMESTAMP updated_at
+    }
+    AGENT {
+        VARCHAR id PK
+        VARCHAR os
+        VARCHAR ip
+        VARCHAR city
+        DOUBLE lat
+        DOUBLE lng
+        VARCHAR status
+        VARCHAR crypto_key_id FK
+        VARCHAR redirector_id FK
+        TIMESTAMP last_seen
+    }
+    PLAYBOOK {
+        VARCHAR id PK
+        VARCHAR name
+        VARCHAR description
+        TIMESTAMP created_at
+    }
+    PLAYBOOK_STEP {
+        INTEGER id PK
+        VARCHAR playbook_id FK
+        VARCHAR command
+        INTEGER delay
+        INTEGER step_order
+        JSON mitre_tactics
+    }
+    PLAYBOOK_EXECUTION {
+        VARCHAR id PK
+        VARCHAR playbook_id FK
+        VARCHAR playbook_name
+        VARCHAR status
+        INTEGER current_step
+        INTEGER total_steps
+        TIMESTAMP started_at
+        TIMESTAMP completed_at
+        JSON agent_ids
+        JSON logs
+    }
+    EXECUTION {
+        INTEGER id PK
+        VARCHAR agent_id FK
+        VARCHAR command
+        VARCHAR result
+        VARCHAR status
+        TIMESTAMP timestamp
+    }
+    CRYPTO_KEY {
+        VARCHAR id PK
+        VARCHAR name
+        VARCHAR value
+        VARCHAR algorithm
+        TIMESTAMP created_at
+        TIMESTAMP rotated_at
+        BOOLEAN active
+    }
+    REDIRECTOR {
+        VARCHAR id PK
+        VARCHAR name
+        VARCHAR host
+        INTEGER port
+        VARCHAR status
+        VARCHAR uplink_id FK
+        TIMESTAMP created_at
+        INTEGER latency_ms
+        INTEGER agents_count
+        DOUBLE throughput_mbps
+    }
+    SYSTEM_LOG {
+        INTEGER id PK
+        TIMESTAMP timestamp
+        VARCHAR level
+        VARCHAR message
+        VARCHAR agent_id FK
+        VARCHAR playbook_execution_id FK
+    }
+
+    PLAYBOOK ||--o{ PLAYBOOK_STEP : "contains"
+    PLAYBOOK ||--o{ PLAYBOOK_EXECUTION : "runs"
+    AGENT ||--o{ EXECUTION : "executes"
+    CRYPTO_KEY ||--o{ AGENT : "secures"
+    REDIRECTOR ||--o{ AGENT : "routes"
+    AGENT ||--o{ SYSTEM_LOG : "references"
+    PLAYBOOK_EXECUTION ||--o{ SYSTEM_LOG : "references"
+```
+
+---
+
+## 3. Cambios Propuestos
+
+### Componente Backend (`backend/`)
+
+#### 1. [NEW] [database.py](file:///d:/APT-White---Aligo/backend/database.py)
+- Inicializa el motor de base de datos (`create_engine`) utilizando la variable `DATABASE_URL` del entorno.
+- Habilita `pool_pre_ping=True` para prevenir desconexiones inactivas causadas por el comportamiento serverless de Neon.
+- Declara la sesión (`sessionmaker`) y la base declarativa (`Base`).
+
+#### 2. [NEW] [models.py](file:///d:/APT-White---Aligo/backend/models.py)
+- Define las clases mapeadas a tablas con sus relaciones: `SystemConfigModel`, `AgentModel`, `PlaybookModel`, `PlaybookStepModel`, `PlaybookExecutionModel`, `ExecutionModel`, `CryptoKeyModel`, `RedirectorModel` y `SystemLogModel`.
+- Implementa una función `seed_database(db: Session)` para pre-poblar el estado si las tablas están vacías:
+  - Configuración del sistema por defecto.
+  - Clave criptográfica por defecto.
+  - Redireccionadores por defecto (Main C2, Bogotá Proxy, Medellín Proxy) y su árbol de uplinks.
+  - 33 agentes de Colombia correspondientes a los departamentos, asignándoles el redirector correspondiente en base a su geolocalización.
+
+#### 3. [MODIFY] [main.py](file:///d:/APT-White---Aligo/backend/main.py)
+- Importa `database.py` y `models.py`.
+- Llama a `Base.metadata.create_all()` y al script de seed en el startup del servidor.
+- Modifica los endpoints para inyectar la sesión (`Session = Depends(get_db)`):
+  - **CRUD de Agentes**: `/api/agents` y `/api/agents/locations` consultan y persisten en la tabla `agents` cargando la relación con sus redirectores y llaves. Soporta actualización de `crypto_key_id` y `redirector_id` vía PATCH.
+  - **CRUD de Playbooks**: `/api/playbooks` y sus variantes de YAML.
+  - **Ejecuciones**: `/api/command` inserta inmediatamente un registro de ejecución en base de datos. Si el agente está online, envía la orden; si está offline, registra el estado correspondiente en base de datos de inmediato.
+  - **IA Chat**: Consolida los dos endpoints `/api/ai/chat` en uno solo. Integra el control de guardrails, soporte multivuelta (historial de sesión en base a `session_id`), contexto enriquecido de ataques de drag & drop, y análisis de logs usando `gemini-3.5-flash`.
+  - **Claves Criptográficas y Redireccionadores**: Reemplaza el simulador y diccionarios en memoria con transacciones de base de datos. Soporta asignación de `uplink_id` al crear.
+  - **Diagnostics & Logs**: `/api/system/diagnose` y `/api/system/logs` leen/escriben directamente en base de datos vinculando las entidades relacionadas cuando sea posible.
+
+---
+
+### Componente Frontend (`frontend/`)
+
+#### 1. [MODIFY] [Settings.tsx](file:///d:/APT-White---Aligo/frontend/src/pages/Settings.tsx)
+- Integra los componentes `CryptoKeyManager` y `RedirectorManager` dentro de la pestaña **Seguridad & IA** (`activeTab === 'security'`).
+- **NUEVO INPUT (B):** Añade un switch/checkbox interactivo para alternar la encriptación del canal (`enable_encryption`), enviando la actualización del estado al guardar la configuración global en el backend.
+- Mapea correctamente las URLs del backend a `${API_BASE_URL}` en lugar de usar cadenas estáticas (`http://localhost:8000`).
+
+#### 2. [MODIFY] [CryptoKeyManager.tsx](file:///d:/APT-White---Aligo/frontend/src/components/CryptoKeyManager.tsx) y [RedirectorManager.tsx](file:///d:/APT-White---Aligo/frontend/src/components/RedirectorManager.tsx)
+- **NUEVO INPUT (A):** Añade un selector desplegable (`<select>`) en el formulario de creación de `RedirectorManager.tsx` para permitir que el operador elija el redireccionador superior (`uplink_id`) del nuevo nodo desde la lista de redirectores existentes, enviándolo en el POST al backend.
+- Ajusta el direccionamiento de red para usar la variable de entorno `import.meta.env.VITE_API_URL` si está disponible.
+- Rediseña la estructura de renderizado y el CSS para que los paneles luzcan modernos e integrados a la paleta corporativa oscura de Aligo.
+
+#### 3. [MODIFY] [AgentDetail.tsx](file:///d:/APT-White---Aligo/frontend/src/pages/AgentDetail.tsx)
+- **NUEVO INPUT (C):** Añade dos selectores interactivos a la tarjeta de detalles del agente comprometido:
+  1. Selector de Llave Criptográfica (`crypto_key_id`) para cambiar la clave de comunicación dedicada.
+  2. Selector de Redireccionador (`redirector_id`) para re-enrutar dinámicamente el tráfico del agente a través de un proxy diferente de la red.
+- Las modificaciones se enviarán inmediatamente mediante una petición `PATCH` al backend para actualizar los campos en la tabla `AGENT`.
+
+---
+
+## 4. Plan de Pruebas y Verificación
+
+### Pruebas Automatizadas
+- Creación de un script `backend/test_db_conn.py` para verificar que la cadena de conexión de Neon conecta correctamente, crea las tablas y realiza operaciones básicas de inserción y consulta.
+
+### Verificación Manual
+1. **Poblamiento de Base de Datos**: Inspeccionar la consola del proyecto en Neon para confirmar que las tablas se crean y se llenan con los datos iniciales al arrancar el backend.
+2. **Drag & Drop y Persistencia**: Arrastrar un ataque (e.g. RECON) a un agente del mapa, verificar que la alerta visual se dispara y que el comando se guarda en la base de datos (y aparece en la Actividad Reciente del Dashboard).
+3. **Flujo de Entradas Criptográficas y de Red**: 
+   - Crear un nuevo redireccionador asociándole un `uplink` y confirmar la correcta asignación en base de datos.
+   - Entrar al detalle de un agente, cambiar su llave dedicada y re-enrutar su proxy, confirmando que las peticiones se guardan correctamente en Neon.

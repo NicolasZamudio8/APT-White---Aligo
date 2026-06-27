@@ -4,46 +4,8 @@ import { X, Radio, Download, Square, Circle } from 'lucide-react';
 interface TSharkModalProps {
   onClose: () => void;
   agentIps?: string[];
+  isOpen?: boolean;
 }
-
-// Attack-specific network datagrams — deterministic, not random
-// Each attack type produces the realistic network patterns it would generate
-const ATTACK_SIGNATURES: Record<string, (agentIp: string, ts: string) => string[]> = {
-  recon: (ip, ts) => [
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           TCP    ${Math.floor(Math.random()*60000+1024)} → 135   [SYN] Seq=0 Win=64240 Len=0     ← WMI/RPC port probe`,
-    `${ts}  10.0.0.1          → ${ip.padEnd(18)} TCP    135 → 49152 [SYN ACK] Seq=0 Ack=1 Win=8192`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           TCP    49152 → 445 [SYN] Seq=0 Win=64240      ← SMB enumeration`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           ICMP   74     Echo (ping) request id=0x0001 seq=1`,
-    `${ts}  10.0.0.1          → ${ip.padEnd(18)} ICMP   74     Echo (ping) reply id=0x0001 seq=1`,
-    `${ts}  ${ip.padEnd(18)} → 255.255.255.255    ARP    42     Who has 192.168.0.1? Tell ${ip}  ← ARP host sweep`,
-  ],
-  dump: (ip, ts) => [
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           TCP    49200 → 445 [SYN] Seq=0 Win=64240      ← SMB to access SAM`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           SMB    237    Session Setup AndX Request, NTLMSSP_NEGOTIATE`,
-    `${ts}  10.0.0.1          → ${ip.padEnd(18)} SMB    195    Session Setup AndX Response, NTLMSSP_CHALLENGE`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           SMB    458    Session Setup AndX Request, NTLMSSP_AUTH, User: SYSTEM`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           TCP    49201 → 135  [SYN] Seq=0               ← LSASS via RPC`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           MSRPC  1048   Call bind: IObjectExporter UUID (LSARPC interface)`,
-    `${ts}  ${ip.padEnd(18)} → 10.0.0.1           MSRPC  2048   LsarQueryInformationPolicy2: PolicyAccountDomainInformation`,
-  ],
-  beacon: (ip, ts) => [
-    `${ts}  ${ip.padEnd(18)} → 104.21.85.12       DNS    73     Standard query A beacon.aligo.internal    ← C2 DNS lookup`,
-    `${ts}  8.8.8.8           → ${ip.padEnd(18)} DNS    89     Standard query response A 104.21.85.12`,
-    `${ts}  ${ip.padEnd(18)} → 104.21.85.12       TCP    49210 → 443 [SYN] Seq=0 Win=64240      ← HTTPS C2 channel`,
-    `${ts}  ${ip.padEnd(18)} → 104.21.85.12       TLSv1.3 517  Client Hello (SNI: cdn.cloudflare.net)  ← Domain fronting`,
-    `${ts}  104.21.85.12      → ${ip.padEnd(18)} TLSv1.3 1389 Application Data Len=1024          ← C2 task delivered`,
-    `${ts}  ${ip.padEnd(18)} → 104.21.85.12       TLSv1.3 287  Application Data Len=256          ← Heartbeat ack`,
-  ],
-  exfil: (ip, ts) => [
-    `${ts}  ${ip.padEnd(18)} → 104.21.85.12       DNS    98     Standard query TXT _dmarc.exfil.aligo.co  ← DNS tunnel`,
-    `${ts}  ${ip.padEnd(18)} → 52.84.100.200      TCP    49215 → 443 [SYN] Seq=0 Win=64240      ← HTTPS exfil channel`,
-    `${ts}  ${ip.padEnd(18)} → 52.84.100.200      TLSv1.3 1460 Application Data (PSH) Len=1460  ← Data chunk 1/N`,
-    `${ts}  ${ip.padEnd(18)} → 52.84.100.200      TLSv1.3 1460 Application Data (PSH) Len=1460  ← Data chunk 2/N`,
-    `${ts}  ${ip.padEnd(18)} → 52.84.100.200      TLSv1.3 1460 Application Data (PSH) Len=1460  ← Data chunk 3/N`,
-    `${ts}  ${ip.padEnd(18)} → 52.84.100.200      HTTP   POST /api/upload Content-Type: application/octet-stream`,
-    `${ts}  52.84.100.200     → ${ip.padEnd(18)} TLSv1.3 89   Application Data Len=24           ← Server ACK (exfil confirmed)`,
-  ],
-};
 
 const INTERFACES = ['eth0', 'lo', 'any', 'wlan0'];
 
@@ -63,61 +25,56 @@ function getLineColor(line: string): string {
   return '#52525b';
 }
 
-interface AttackEvent {
-  commandId: string;
-  commandLabel: string;
-  agentId: string;
-  agentIp: string;
-  timestamp: string;
-}
-
-export default function TSharkModal({ onClose }: TSharkModalProps) {
+export default function TSharkModal({ onClose, isOpen = true }: TSharkModalProps) {
   const [packets, setPackets] = useState<string[]>([]);
   const [isCapturing, setIsCapturing] = useState(true);
   const [selectedInterface, setSelectedInterface] = useState('any');
-  const [packetCount, setPacketCount] = useState(0);
-  const [attackLog, setAttackLog] = useState<AttackEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 
-  const appendPackets = useCallback((lines: string[]) => {
-    setPackets(prev => [...prev.slice(-300), ...lines]);
-    setPacketCount(c => c + lines.length);
+  const fetchPackets = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/tshark/packets');
+      if (response.ok) {
+        const data = await response.json();
+        const lines = data.map((p: any) => p.line);
+        setPackets([
+          'Capturing on interface: any',
+          '─────────────────────────────────────────────────────────────────────────────────────────',
+          'TIMESTAMP         SOURCE              DESTINATION         PROTO   PORT  INFO',
+          '─────────────────────────────────────────────────────────────────────────────────────────',
+          ...lines
+        ]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch persisted TShark packets:', err);
+    }
   }, []);
 
-  // Initial banner
+  // Initial banner and load
   useEffect(() => {
-    setPackets([
-      'Capturing on interface: any',
-      '─────────────────────────────────────────────────────────────────────────────────────────',
-      'TIMESTAMP         SOURCE              DESTINATION         PROTO   PORT  INFO',
-      '─────────────────────────────────────────────────────────────────────────────────────────',
-    ]);
-  }, []);
+    fetchPackets();
+  }, [fetchPackets]);
 
-
-  // Listen for attack events from Map.tsx drag & drop
+  // Listen for attack events to trigger quick refresh
   useEffect(() => {
-    const handleAttack = (e: CustomEvent<{ commandId: string; commandLabel: string; agentId: string; ip: string; city: string; timestamp: string }>) => {
+    const handleAttack = () => {
       if (!isCapturing) return;
-
-      const { commandId, commandLabel, agentId, ip, timestamp } = e.detail;
-      const now = new Date();
-      const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}.000000`;
-
-      // Separator line
-      const separator = `\n──── ATTACK EVENT: ${commandLabel.toUpperCase()} → ${agentId} (${ip}) at ${timestamp} ────`;
-
-      const attackPackets = ATTACK_SIGNATURES[commandId]
-        ? [separator, ...ATTACK_SIGNATURES[commandId](ip, ts)]
-        : [separator, `${ts}  ${ip.padEnd(18)} → 10.0.0.1           TCP    Payload: ${commandLabel}`];
-
-      appendPackets(attackPackets);
-      setAttackLog(prev => [{ commandId, commandLabel, agentId, agentIp: ip, timestamp }, ...prev].slice(0, 20));
+      setTimeout(fetchPackets, 150);
     };
 
-    window.addEventListener('c2_attack_event', handleAttack as EventListener);
-    return () => window.removeEventListener('c2_attack_event', handleAttack as EventListener);
-  }, [isCapturing, appendPackets]);
+    window.addEventListener('c2_attack_event', handleAttack);
+    return () => window.removeEventListener('c2_attack_event', handleAttack);
+  }, [isCapturing, fetchPackets]);
+
+  // Poll packets periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isCapturing) {
+        fetchPackets();
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isCapturing, fetchPackets]);
 
   // Auto-scroll
   useEffect(() => {
@@ -136,8 +93,11 @@ export default function TSharkModal({ onClose }: TSharkModalProps) {
     URL.revokeObjectURL(url);
   };
 
+  const attackCount = packets.filter(l => l.startsWith('\n')).length;
+  const packetCount = packets.filter(l => !l.startsWith('\n') && !l.startsWith('Capturing') && !l.startsWith('───')).length;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-end p-6 pointer-events-none">
+    <div className={`fixed inset-0 z-50 flex items-end justify-end p-6 pointer-events-none ${isOpen ? '' : 'hidden'}`}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm pointer-events-auto" onClick={onClose} />
 
       <div className="relative pointer-events-auto flex flex-col rounded-2xl overflow-hidden"
@@ -160,7 +120,7 @@ export default function TSharkModal({ onClose }: TSharkModalProps) {
             {isCapturing ? 'LIVE' : 'STOPPED'}
           </span>
 
-          <span className="ml-auto text-[10px] font-mono text-zinc-600">{packetCount.toLocaleString()} pkts · {attackLog.length} attacks</span>
+          <span className="ml-auto text-[10px] font-mono text-zinc-600">{packetCount.toLocaleString()} pkts · {attackCount} attacks</span>
 
           <button onClick={onClose} className="ml-3 p-1.5 rounded-lg hover:bg-white/5 transition-colors text-zinc-500 hover:text-white">
             <X className="w-4 h-4" />
@@ -221,32 +181,11 @@ export default function TSharkModal({ onClose }: TSharkModalProps) {
           )}
         </div>
 
-        {/* Attack history sidebar */}
-        {attackLog.length > 0 && (
-          <div className="shrink-0 border-t border-white/[0.04] px-5 py-3 max-h-28 overflow-y-auto"
-            style={{ background: 'rgba(255,255,255,0.015)' }}>
-            <span className="text-[8px] font-bold text-zinc-700 uppercase tracking-widest block mb-2">Attack Events Captured</span>
-            <div className="space-y-1">
-              {attackLog.map((ev, i) => (
-                <div key={i} className="flex items-center gap-2 text-[9px] font-mono">
-                  <span className="text-zinc-700">{ev.timestamp}</span>
-                  <span className="font-bold" style={{
-                    color: ev.commandId === 'recon' ? '#f97316' : ev.commandId === 'dump' ? '#8b5cf6' : ev.commandId === 'beacon' ? '#e02424' : '#f59e0b'
-                  }}>{ev.commandLabel}</span>
-                  <span className="text-zinc-600">→</span>
-                  <span className="text-zinc-400">{ev.agentId}</span>
-                  <span className="text-zinc-700">({ev.agentIp})</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Status bar */}
         <div className="shrink-0 flex items-center gap-4 px-5 py-2 border-t border-white/[0.04]"
           style={{ background: 'rgba(255,255,255,0.01)' }}>
           <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-widest">Interface: {selectedInterface}</span>
-          <span className="text-[9px] font-mono text-zinc-700">Attacks: {attackLog.length} · Filter: C2 ports + NTLM + DNS-tunnel</span>
+          <span className="text-[9px] font-mono text-zinc-700">Attacks: {attackCount} · Filter: C2 ports + NTLM + DNS-tunnel</span>
           <span className="ml-auto text-[9px] font-mono" style={{ color: isCapturing ? '#34d399' : '#71717a' }}>
             {isCapturing ? '● Capturing' : '■ Stopped'}
           </span>
