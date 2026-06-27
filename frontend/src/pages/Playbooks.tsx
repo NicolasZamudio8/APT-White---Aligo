@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { usePlaybookStore } from '../store/playbookStore';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { 
   Play, 
   Plus, 
@@ -13,7 +14,9 @@ import {
   Terminal, 
   FileText,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Download,
+  Upload
 } from 'lucide-react';
 
 interface Agent {
@@ -34,7 +37,9 @@ export default function Playbooks() {
     createPlaybook, 
     updatePlaybook, 
     deletePlaybook, 
-    executePlaybook 
+    executePlaybook,
+    exportYaml,
+    importYaml
   } = usePlaybookStore();
 
   const [activeAgents, setActiveAgents] = useState<Agent[]>([]);
@@ -47,8 +52,8 @@ export default function Playbooks() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
-  const [formSteps, setFormSteps] = useState<{ command: string; delay: number }[]>([
-    { command: '', delay: 2 }
+  const [formSteps, setFormSteps] = useState<{ command: string; delay: number; mitre_tactics: string[] }[]>([
+    { command: '', delay: 2, mitre_tactics: [] }
   ]);
 
   // Fetch initial data
@@ -79,7 +84,7 @@ export default function Playbooks() {
     setEditingId(null);
     setFormName('');
     setFormDescription('');
-    setFormSteps([{ command: '', delay: 2 }]);
+    setFormSteps([{ command: '', delay: 2, mitre_tactics: [] }]);
     setIsEditorOpen(true);
   };
 
@@ -87,7 +92,7 @@ export default function Playbooks() {
     setEditingId(pb.id);
     setFormName(pb.name);
     setFormDescription(pb.description);
-    setFormSteps(pb.steps.map((s: any) => ({ command: s.command, delay: s.delay })));
+    setFormSteps(pb.steps.map((s: any) => ({ command: s.command, delay: s.delay, mitre_tactics: s.mitre_tactics || [] })));
     setIsEditorOpen(true);
   };
 
@@ -114,7 +119,7 @@ export default function Playbooks() {
   };
 
   const handleAddStep = () => {
-    setFormSteps(prev => [...prev, { command: '', delay: 2 }]);
+    setFormSteps(prev => [...prev, { command: '', delay: 2, mitre_tactics: [] }]);
   };
 
   const handleRemoveStep = (index: number) => {
@@ -122,13 +127,32 @@ export default function Playbooks() {
     setFormSteps(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleStepChange = (index: number, field: 'command' | 'delay', value: any) => {
-    setFormSteps(prev => {
-      const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
-      return copy;
-    });
+  const handleStepChange = (index: number, field: string, value: any) => {
+    const newSteps = [...formSteps];
+    if (field === 'mitre_tactics') {
+      newSteps[index] = { ...newSteps[index], [field]: value.split(',').map((t: string) => t.trim()).filter((t: string) => t) };
+    } else {
+      newSteps[index] = { ...newSteps[index], [field]: value };
+    }
+    setFormSteps(newSteps);
   };
+
+  const calculateMitreCoverage = () => {
+    const coverage: Record<string, number> = {};
+    playbooks.forEach(pb => {
+      pb.steps.forEach(step => {
+        if (step.mitre_tactics) {
+          step.mitre_tactics.forEach(tactic => {
+            const t = tactic.toUpperCase();
+            coverage[t] = (coverage[t] || 0) + 1;
+          });
+        }
+      });
+    });
+    return Object.entries(coverage).map(([subject, fullMark]) => ({ subject, fullMark })).sort((a, b) => b.fullMark - a.fullMark).slice(0, 8);
+  };
+
+  const mitreData = calculateMitreCoverage();
 
   const handleTriggerExecute = (playbookId: string) => {
     setSelectedPlaybook(playbookId);
@@ -162,6 +186,41 @@ export default function Playbooks() {
     }
   };
 
+  const handleExportYaml = async (id: string, name: string) => {
+    try {
+      const yamlContent = await exportYaml(id);
+      const blob = new Blob([yamlContent], { type: 'text/yaml' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name.replace(/\s+/g, '_')}.yaml`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert('Error exporting YAML');
+    }
+  };
+
+  const handleImportYaml = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        await importYaml(content);
+        alert('Playbook importado exitosamente');
+      } catch (err) {
+        console.error(err);
+        alert('Error importing YAML');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset input
+  };
+
   return (
     <div className="space-y-6 text-slate-100 pb-12">
       {/* Header */}
@@ -175,13 +234,20 @@ export default function Playbooks() {
             Automatización y ejecución orquestada de comandos en múltiples agentes simultáneamente.
           </p>
         </div>
-        <button
-          onClick={handleOpenCreate}
-          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-lg shadow-blue-900/30"
-        >
-          <Plus className="w-4 h-4" />
-          Nuevo Playbook
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-2 border border-slate-700 shadow-lg">
+            <Upload className="w-4 h-4" />
+            Importar YAML
+            <input type="file" accept=".yaml,.yml" className="hidden" onChange={handleImportYaml} />
+          </label>
+          <button
+            onClick={handleOpenCreate}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 shadow-lg shadow-blue-900/30"
+          >
+            <Plus className="w-4 h-4" />
+            Nuevo Playbook
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -211,6 +277,25 @@ export default function Playbooks() {
               No hay playbooks creados. Haz clic en "Nuevo Playbook" para comenzar.
             </div>
           ) : (
+            <>
+            <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-5 mb-4">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4">Cobertura de Tácticas MITRE ATT&CK</h3>
+              {mitreData.length > 0 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="80%" data={mitreData}>
+                      <PolarGrid stroke="#334155" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                      <PolarRadiusAxis angle={30} domain={[0, 'auto']} tick={{ fill: '#475569' }} />
+                      <Radar name="Comandos" dataKey="fullMark" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.4} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f1f5f9' }} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="text-center text-slate-500 text-sm py-8">No hay tácticas MITRE asignadas a los comandos.</div>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {playbooks.map((pb) => (
                 <div 
@@ -245,6 +330,13 @@ export default function Playbooks() {
 
                   <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-800/60">
                     <button
+                      onClick={() => handleExportYaml(pb.id, pb.name)}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 border border-slate-700"
+                      title="Exportar a YAML"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                    <button
                       onClick={() => handleTriggerExecute(pb.id)}
                       className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
                     >
@@ -268,6 +360,7 @@ export default function Playbooks() {
                 </div>
               ))}
             </div>
+            </>
           )}
         </div>
 
@@ -544,6 +637,17 @@ export default function Playbooks() {
                           className="w-8 bg-transparent text-xs text-center font-semibold focus:outline-none text-slate-200"
                         />
                         <span className="text-[10px] text-slate-500">s</span>
+                      </div>
+
+                      {/* MITRE Tags Input */}
+                      <div className="w-32 shrink-0">
+                        <input
+                          type="text"
+                          value={(step.mitre_tactics || []).join(', ')}
+                          onChange={(e) => handleStepChange(idx, 'mitre_tactics', e.target.value)}
+                          placeholder="MITRE (ej: T1033)"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        />
                       </div>
 
                       {/* Remove Button */}

@@ -3,6 +3,7 @@ const API_BASE_URL = 'http://localhost:8000/api';
 export interface PlaybookStep {
   command: string;
   delay: number;
+  mitre_tactics?: string[];
 }
 
 export interface Playbook {
@@ -71,5 +72,21 @@ export async function executePlaybook(playbookId: string, agentIds: string[]): P
 export async function getPlaybookExecutions(): Promise<PlaybookExecution[]> {
   const res = await fetch(`${API_BASE_URL}/playbooks/executions`);
   if (!res.ok) throw new Error('Failed to fetch playbook executions');
+  return res.json();
+}
+
+export async function exportPlaybookYaml(playbookId: string): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/playbooks/${playbookId}/yaml`);
+  if (!res.ok) throw new Error('Failed to export playbook');
+  return res.text();
+}
+
+export async function importPlaybookYaml(yamlContent: string): Promise<Playbook> {
+  const res = await fetch(`${API_BASE_URL}/playbooks/yaml`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ yaml_content: yamlContent }),
+  });
+  if (!res.ok) throw new Error('Failed to import playbook');
   return res.json();
 }

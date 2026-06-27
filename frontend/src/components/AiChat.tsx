@@ -15,6 +15,33 @@ export default function AiChat() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    const handleAnalyzeLog = async (e: any) => {
+      const logData = e.detail;
+      setMessages(prev => [...prev, { role: 'user', text: `Analiza este log:\n${logData}` }]);
+      setLoading(true);
+
+      try {
+        const res = await fetch('http://localhost:8000/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Analyze log', context_type: 'log_analysis', context_data: logData }),
+        });
+        if (!res.ok) throw new Error('API request failed');
+        const data = await res.json();
+        setMessages(prev => [...prev, { role: 'ai', text: data.reply }]);
+      } catch (err) {
+        console.error(err);
+        setMessages(prev => [...prev, { role: 'ai', text: 'Error al conectar con el asistente de IA.' }]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    window.addEventListener('analyze_log', handleAnalyzeLog);
+    return () => window.removeEventListener('analyze_log', handleAnalyzeLog);
+  }, []);
+
   const [loading, setLoading] = useState(false);
 
   const handleSend = async (e: React.FormEvent) => {

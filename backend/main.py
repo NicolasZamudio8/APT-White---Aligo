@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 from encryption_manager import EncryptionManager
 from redirector_simulator import RedirectorSimulator
+import yaml
 from playbook_generator import PlaybookGenerator, ResultDecoder
 
 try:
@@ -126,6 +127,7 @@ result_decoder = ResultDecoder(gemini_model)
 class PlaybookStepIn(BaseModel):
     command: str = Field(..., min_length=1)
     delay: int = Field(default=2, ge=0)
+    mitre_tactics: List[str] = Field(default_factory=list)
 
 class PlaybookCreateIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -147,6 +149,8 @@ class ConfigUpdateIn(BaseModel):
 
 class ChatMessageIn(BaseModel):
     message: str = Field(..., min_length=1)
+    context_type: Optional[str] = None
+    context_data: Optional[str] = None
 
 class CryptoKeyIn(BaseModel):
     name: str = Field(..., min_length=1)
@@ -335,6 +339,49 @@ def delete_playbook(playbook_id: str):
     })
     return {"status": "success", "message": f"Deleted playbook {playbook_id}"}
 
+from fastapi import Response
+
+@app.get("/api/playbooks/{playbook_id}/yaml")
+def export_playbook_yaml(playbook_id: str):
+    if playbook_id not in mock_playbooks:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    pb = mock_playbooks[playbook_id]
+    yaml_str = yaml.dump(pb, sort_keys=False)
+    return Response(content=yaml_str, media_type="application/x-yaml")
+
+class PlaybookYamlImportIn(BaseModel):
+    yaml_content: str = Field(..., min_length=1)
+
+@app.post("/api/playbooks/yaml")
+def import_playbook_yaml(import_req: PlaybookYamlImportIn):
+    try:
+        pb_data = yaml.safe_load(import_req.yaml_content)
+        pb_id = f"pb-{uuid.uuid4().hex[:6]}"
+        
+        new_pb = {
+            "id": pb_id,
+            "name": pb_data.get("name", "Imported Playbook"),
+            "description": pb_data.get("description", ""),
+            "steps": []
+        }
+        
+        for step in pb_data.get("steps", []):
+            new_pb["steps"].append({
+                "command": step.get("command", ""),
+                "delay": step.get("delay", 2),
+                "mitre_tactics": step.get("mitre_tactics", [])
+            })
+            
+        mock_playbooks[pb_id] = new_pb
+        system_logs.append({
+            "timestamp": datetime.now().isoformat(),
+            "level": "INFO",
+            "message": f"Imported playbook '{new_pb['name']}' from YAML."
+        })
+        return new_pb
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML format: {str(e)}")
+
 # Background execution handler for playbooks
 async def run_playbook_background(execution_id: str, playbook_id: str, agent_ids: List[str]):
     pb = mock_playbooks.get(playbook_id)
@@ -467,19 +514,48 @@ def get_agents_locations():
         
     if not locations:
         mock_agents_seeds = [
-            {"id": "agent-seed-bogota", "os": "Windows 10", "ip": "10.0.0.12", "city_idx": 0, "status": "offline"},
-            {"id": "agent-seed-medellin", "os": "RedHat Enterprise", "ip": "10.0.0.24", "city_idx": 1, "status": "offline"},
-            {"id": "agent-seed-cali", "os": "macOS Ventura", "ip": "192.168.20.1", "city_idx": 2, "status": "offline"}
+            {'id': 'ag-ant-1000', 'os': 'Windows 10', 'ip': '192.168.10.54', 'status': 'online', 'lat': 8.6193, 'lng': -76.3073, 'city': 'Antioquia'},
+            {'id': 'ag-atl-1001', 'os': 'Linux', 'ip': '192.168.11.127', 'status': 'online', 'lat': 10.3612, 'lng': -74.8706, 'city': 'Atlantico'},
+            {'id': 'ag-san-1002', 'os': 'Windows 10', 'ip': '192.168.12.2', 'status': 'online', 'lat': 4.7951, 'lng': -74.0229, 'city': 'Santafe de bogota d.c'},
+            {'id': 'ag-bol-1003', 'os': 'Linux', 'ip': '192.168.13.127', 'status': 'offline', 'lat': 10.4236, 'lng': -75.1595, 'city': 'Bolivar'},
+            {'id': 'ag-boy-1004', 'os': 'Windows 10', 'ip': '192.168.14.115', 'status': 'online', 'lat': 7.0275, 'lng': -72.2130, 'city': 'Boyaca'},
+            {'id': 'ag-cal-1005', 'os': 'Linux', 'ip': '192.168.15.7', 'status': 'online', 'lat': 5.7527, 'lng': -74.6950, 'city': 'Caldas'},
+            {'id': 'ag-caq-1006', 'os': 'Windows 10', 'ip': '192.168.16.143', 'status': 'online', 'lat': 2.4978, 'lng': -74.6926, 'city': 'Caqueta'},
+            {'id': 'ag-cau-1007', 'os': 'Linux', 'ip': '192.168.17.52', 'status': 'online', 'lat': 2.9751, 'lng': -78.2116, 'city': 'Cauca'},
+            {'id': 'ag-ces-1008', 'os': 'Windows 10', 'ip': '192.168.18.10', 'status': 'online', 'lat': 10.8562, 'lng': -73.2823, 'city': 'Cesar'},
+            {'id': 'ag-cor-1009', 'os': 'Linux', 'ip': '192.168.19.30', 'status': 'online', 'lat': 9.4230, 'lng': -75.8195, 'city': 'Cordoba'},
+            {'id': 'ag-cun-1010', 'os': 'Windows 10', 'ip': '192.168.20.82', 'status': 'online', 'lat': 5.7489, 'lng': -74.3296, 'city': 'Cundinamarca'},
+            {'id': 'ag-cho-1011', 'os': 'Linux', 'ip': '192.168.21.152', 'status': 'offline', 'lat': 8.2717, 'lng': -77.0213, 'city': 'Choco'},
+            {'id': 'ag-hui-1012', 'os': 'Windows 10', 'ip': '192.168.22.57', 'status': 'offline', 'lat': 3.2739, 'lng': -74.6360, 'city': 'Huila'},
+            {'id': 'ag-la -1013', 'os': 'Linux', 'ip': '192.168.23.18', 'status': 'online', 'lat': 12.4235, 'lng': -71.6212, 'city': 'La guajira'},
+            {'id': 'ag-mag-1014', 'os': 'Windows 10', 'ip': '192.168.24.131', 'status': 'online', 'lat': 11.3277, 'lng': -74.0918, 'city': 'Magdalena'},
+            {'id': 'ag-met-1015', 'os': 'Linux', 'ip': '192.168.25.199', 'status': 'online', 'lat': 4.4449, 'lng': -71.0799, 'city': 'Meta'},
+            {'id': 'ag-nar-1016', 'os': 'Windows 10', 'ip': '192.168.26.36', 'status': 'online', 'lat': 2.5774, 'lng': -77.9836, 'city': 'Nariño'},
+            {'id': 'ag-nor-1017', 'os': 'Linux', 'ip': '192.168.27.85', 'status': 'offline', 'lat': 9.1340, 'lng': -73.0178, 'city': 'Norte de santander'},
+            {'id': 'ag-qui-1018', 'os': 'Windows 10', 'ip': '192.168.28.69', 'status': 'online', 'lat': 4.6946, 'lng': -75.6721, 'city': 'Quindio'},
+            {'id': 'ag-ris-1019', 'os': 'Linux', 'ip': '192.168.29.40', 'status': 'online', 'lat': 5.4751, 'lng': -75.8865, 'city': 'Risaralda'},
+            {'id': 'ag-san-1020', 'os': 'Windows 10', 'ip': '192.168.30.153', 'status': 'online', 'lat': 8.1150, 'lng': -73.8001, 'city': 'Santander'},
+            {'id': 'ag-suc-1021', 'os': 'Linux', 'ip': '192.168.31.173', 'status': 'online', 'lat': 9.8849, 'lng': -75.4831, 'city': 'Sucre'},
+            {'id': 'ag-tol-1022', 'os': 'Windows 10', 'ip': '192.168.32.134', 'status': 'online', 'lat': 5.2814, 'lng': -74.8400, 'city': 'Tolima'},
+            {'id': 'ag-val-1023', 'os': 'Linux', 'ip': '192.168.33.179', 'status': 'online', 'lat': 4.9736, 'lng': -76.0838, 'city': 'Valle del cauca'},
+            {'id': 'ag-ara-1024', 'os': 'Windows 10', 'ip': '192.168.34.182', 'status': 'online', 'lat': 7.0593, 'lng': -70.6987, 'city': 'Arauca'},
+            {'id': 'ag-cas-1025', 'os': 'Linux', 'ip': '192.168.35.49', 'status': 'online', 'lat': 6.2479, 'lng': -70.1725, 'city': 'Casanare'},
+            {'id': 'ag-put-1026', 'os': 'Windows 10', 'ip': '192.168.36.131', 'status': 'offline', 'lat': 1.3164, 'lng': -76.5781, 'city': 'Putumayo'},
+            {'id': 'ag-ama-1027', 'os': 'Linux', 'ip': '192.168.37.183', 'status': 'online', 'lat': 0.1186, 'lng': -71.3864, 'city': 'Amazonas'},
+            {'id': 'ag-gua-1028', 'os': 'Windows 10', 'ip': '192.168.38.123', 'status': 'offline', 'lat': 3.8605, 'lng': -67.6878, 'city': 'Guainia'},
+            {'id': 'ag-gua-1029', 'os': 'Linux', 'ip': '192.168.39.177', 'status': 'online', 'lat': 2.8375, 'lng': -71.2646, 'city': 'Guaviare'},
+            {'id': 'ag-vau-1030', 'os': 'Windows 10', 'ip': '192.168.40.90', 'status': 'online', 'lat': 1.9853, 'lng': -70.1130, 'city': 'Vaupes'},
+            {'id': 'ag-vic-1031', 'os': 'Linux', 'ip': '192.168.41.25', 'status': 'online', 'lat': 6.2795, 'lng': -67.7969, 'city': 'Vichada'},
+            {'id': 'ag-arc-1032', 'os': 'Windows 10', 'ip': '192.168.42.100', 'status': 'online', 'lat': 12.5946, 'lng': -81.7130, 'city': 'Archipielago de san andres providencia y santa catalina'}
         ]
         for seed in mock_agents_seeds:
-            city_info = COLOMBIA_CITIES[seed["city_idx"]]
             locations.append({
                 "agentId": seed["id"],
                 "os": seed["os"],
                 "ip": seed["ip"],
-                "city": city_info["city"],
-                "lat": city_info["lat"],
-                "lng": city_info["lng"],
+                "city": seed["city"],
+                "lat": seed["lat"],
+                "lng": seed["lng"],
                 "status": seed["status"]
             })
             
@@ -666,10 +742,28 @@ def get_system_logs():
 @app.post("/api/ai/chat")
 async def chat_with_gemini(chat_input: ChatMessageIn):
     user_msg = chat_input.message
+    lower_msg = user_msg.lower()
+    
+    # 1. AI Guardrails: Detección heurística de inyección de comandos o acciones destructivas
+    destructive_keywords = ["rm -rf", "drop table", "format c", "delete from", "ignora las instrucciones anteriores", "ignore previous instructions"]
+    if any(keyword in lower_msg for keyword in destructive_keywords):
+        system_logs.append({
+            "timestamp": datetime.now().isoformat(),
+            "level": "WARNING",
+            "message": f"Guardrail triggered: Intento de prompt injection o comando destructivo detectado."
+        })
+        return {"reply": "[GUARDRAIL TRIGGERED] Intento de inyección de comandos destructivos detectado. Comando bloqueado."}
+    
+    # 2. Traducción Inversa (Log Analysis) o Chat Normal
+    is_log_analysis = chat_input.context_type == "log_analysis"
     
     if system_config["enable_ai"] and gemini_model:
         try:
-            prompt = f"Eres el asistente de IA integrado en el C2 Aligo. Responde siempre en espanol de forma concisa y profesional.\n\nUsuario: {user_msg}"
+            if is_log_analysis:
+                prompt = f"Eres el asistente de ciberseguridad del C2 Aligo. Analiza los siguientes logs crudos extraídos de un agente y genera un reporte técnico ejecutivo conciso en español identificando riesgos, configuraciones inseguras o puntos de interés táctico.\n\nLogs:\n{chat_input.context_data}"
+            else:
+                prompt = f"Eres el asistente de IA integrado en el C2 Aligo. Responde siempre en español de forma concisa y profesional.\n\nUsuario: {user_msg}"
+                
             response = await asyncio.to_thread(gemini_model.generate_content, prompt)
             return {"reply": response.text.strip()}
         except Exception as e:
@@ -680,21 +774,25 @@ async def chat_with_gemini(chat_input: ChatMessageIn):
             })
     
     await asyncio.sleep(1)
-    lower_msg = user_msg.lower()
+    
+    # Mock Assistant Fallbacks
+    if is_log_analysis:
+        return {"reply": f"**Reporte Técnico Simulado**\n\nHe analizado los logs enviados. Se han detectado configuraciones de red que podrían indicar exposición de puertos internos (Simulación). El output original fue de {len(chat_input.context_data or '')} caracteres."}
+        
     if "ayuda" in lower_msg or "help" in lower_msg:
-        reply = "Puedo ayudarte con: 1) Analizar resultados de comandos, 2) Generar playbooks, 3) Gestionar claves de encriptacion, 4) Monitorear redirectores."
+        reply = "Puedo ayudarte con: 1) Analizar resultados de comandos, 2) Generar playbooks, 3) Gestionar claves de encriptación, 4) Monitorear redirectores."
     elif "agente" in lower_msg or "agent" in lower_msg:
         active = len([x for x in agents_info.values() if x['status'] == 'online'])
-        reply = f"Actualmente hay {active} agentes activos. Recomiendo ejecutar un playbook de reconocimiento basico."
+        reply = f"Actualmente hay {active} agentes activos. Recomiendo ejecutar un playbook de reconocimiento básico."
     elif "playbook" in lower_msg:
-        reply = "Los playbooks te permiten automatizar secuencias de comandos. Puedo generar uno desde descripcion en lenguaje natural."
-    elif "encriptacion" in lower_msg or "encryption" in lower_msg:
-        reply = f"La encriptacion esta {'ACTIVADA' if system_config['enable_encryption'] else 'DESACTIVADA'}. Tienes {len(crypto_keys)} claves disponibles. Puedes rotar claves en Configuracion."
+        reply = "Los playbooks te permiten automatizar secuencias de comandos. Puedo generar uno desde descripción en lenguaje natural."
+    elif "encriptación" in lower_msg or "encryption" in lower_msg:
+        reply = f"La encriptación está {'ACTIVADA' if system_config['enable_encryption'] else 'DESACTIVADA'}. Tienes {len(crypto_keys)} claves disponibles. Puedes rotar claves en Configuración."
     elif "redirector" in lower_msg:
         active_redirs = len([r for r in redirector_simulator.redirectors.values() if r.status.value == "online"])
-        reply = f"Tienes {active_redirs} redirectores activos en la infraestructura. Consulta el mapa tactico para ver conexiones."
+        reply = f"Tienes {active_redirs} redirectores activos en la infraestructura. Consulta el mapa táctico para ver conexiones."
     else:
-        reply = f"[Simulacion C2]: He recibido tu mensaje: '{user_msg}'. En produccion, esto generaria comandos optimizados."
+        reply = f"[Simulación C2]: He recibido tu mensaje: '{user_msg}'. En producción, esto generaría comandos optimizados."
         
     return {"reply": reply}
 

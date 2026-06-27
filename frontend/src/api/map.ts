@@ -22,7 +22,7 @@ export interface AgentCommandResult {
 }
 
 export async function getAgentLocations(): Promise<AgentLocation[]> {
-  const res = await fetch(`${API_BASE_URL}/agents`);
+  const res = await fetch(`${API_BASE_URL}/agents/locations`);
   if (!res.ok) throw new Error('Failed to fetch agent locations');
 
   const data = await res.json();

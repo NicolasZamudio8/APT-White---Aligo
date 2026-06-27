@@ -5,7 +5,9 @@ import {
   updatePlaybook as apiUpdatePlaybook, 
   deletePlaybook as apiDeletePlaybook, 
   executePlaybook as apiExecutePlaybook,
-  getPlaybookExecutions
+  getPlaybookExecutions,
+  exportPlaybookYaml,
+  importPlaybookYaml
 } from '../api/playbooks';
 import type { Playbook, PlaybookExecution } from '../api/playbooks';
 
@@ -21,6 +23,8 @@ interface PlaybookState {
   updatePlaybook: (id: string, playbook: Omit<Playbook, 'id'>) => Promise<void>;
   deletePlaybook: (id: string) => Promise<void>;
   executePlaybook: (playbookId: string, agentIds: string[]) => Promise<string>;
+  exportYaml: (playbookId: string) => Promise<string>;
+  importYaml: (yamlContent: string) => Promise<void>;
 }
 
 export const usePlaybookStore = create<PlaybookState>((set, get) => ({
@@ -89,6 +93,26 @@ export const usePlaybookStore = create<PlaybookState>((set, get) => ({
       return result.executionId;
     } catch (err: any) {
       set({ error: err.message || 'Error executing playbook' });
+      throw err;
+    }
+  },
+
+  exportYaml: async (playbookId: string) => {
+    try {
+      return await exportPlaybookYaml(playbookId);
+    } catch (err: any) {
+      set({ error: err.message || 'Error exporting playbook YAML' });
+      throw err;
+    }
+  },
+
+  importYaml: async (yamlContent: string) => {
+    set({ loading: true, error: null });
+    try {
+      await importPlaybookYaml(yamlContent);
+      await get().fetchPlaybooks();
+    } catch (err: any) {
+      set({ error: err.message || 'Error importing playbook YAML', loading: false });
       throw err;
     }
   }

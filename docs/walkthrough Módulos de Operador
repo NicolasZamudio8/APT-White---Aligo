@@ -1,0 +1,33 @@
+# Walkthrough: Módulos de Operador (MITRE, YAML) e IA (Guardrails, Análisis Inverso)
+
+He completado todas las implementaciones sugeridas de Nivel 3 y 4. A continuación, presento un resumen detallado de los cambios aplicados en el repositorio:
+
+## Cambios Realizados
+
+### 1. Interfaz de Operador (Frontend React + Vite)
+
+*   **Mapeo de Tácticas MITRE ATT&CK (Nivel 4)**:
+    *   **Frontend**: Integré un gráfico tipo **RadarChart** dinámico en el Dashboard de Playbooks utilizando la librería `recharts`. Este radar evalúa los comandos de todos los playbooks y muestra visualmente un mapa de calor/cobertura sobre cuáles tácticas MITRE se están probando (ej. `T1033`).
+    *   **Editor**: Agregué un campo de entrada para que el analista asocie manualmente tácticas (como `T1033`, `T1049`) a cada paso de un Playbook.
+    *   **Backend**: Modifiqué el esquema `PlaybookStepIn` para persistir `mitre_tactics`.
+
+*   **Importación y Exportación YAML (Nivel 3)**:
+    *   **Frontend**: Agregué botones de importación (con subida de archivo) y exportación nativa para la descarga local de archivos YAML.
+    *   **Backend**: Añadí la librería `pyyaml` e implementé dos endpoints REST (`GET /api/playbooks/{id}/yaml` y `POST /api/playbooks/yaml`) para proveer de formato estándar (interoperable con frameworks tipo Caldera).
+
+### 2. Módulo de IA Copilot (Gemini API Integration)
+
+*   **Guardrails contra Prompt Injection (Nivel 4)**:
+    *   Se implementó una validación en `/api/ai/chat` que inspecciona heurísticamente el input buscando inyecciones o comandos destructivos (ej. `rm -rf`, `drop table`, `ignora las instrucciones anteriores`).
+    *   Si se detecta un riesgo, la IA bloquea la petición y responde con: `[GUARDRAIL TRIGGERED]`.
+
+*   **Traducción Inversa de Logs a Reportes (Nivel 4)**:
+    *   Se implementó el flujo `analyze_log` a través de un CustomEvent de JavaScript. Ahora, los "Comandos Ejecutados" en la vista del Dashboard tienen un botón **"Analizar"**.
+    *   Al presionarlo, el log resultante se envía directamente al Chat de Gemini junto con el identificador `context_type=log_analysis`.
+    *   El endpoint intercepta esto, altera el Prompt de Sistema para instruir a la IA a analizar logs crudos, y retorna un reporte ejecutivo en español sobre los riesgos detectados.
+
+## Verificación
+
+*   ✅ Vite build fue exitoso (sin errores de Type/TS).
+*   ✅ Compilación de Python estática pasada en `main.py`.
+*   ✅ Dependencia de PyYAML integrada correctamente en el `venv` y en `requirements.txt`.

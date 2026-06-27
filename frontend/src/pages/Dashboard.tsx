@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Users, Clock, AlertCircle } from 'lucide-react';
+import { Activity, Users, Clock, AlertCircle, Bot } from 'lucide-react';
 import AiChat from '../components/AiChat';
 
 export default function Dashboard() {
@@ -90,7 +90,16 @@ export default function Dashboard() {
                     <span className="text-sm text-gray-500">|</span>
                     <span className="text-sm font-mono text-gray-400 truncate max-w-xs">{item.result}</span>
                   </div>
-                  <span className="text-xs text-gray-500">Just now</span>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => window.dispatchEvent(new CustomEvent('analyze_log', { detail: item.result }))}
+                      className="text-xs flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors"
+                      title="Analizar con IA"
+                    >
+                      <Bot className="w-3 h-3" /> Analizar
+                    </button>
+                    <span className="text-xs text-gray-500">Just now</span>
+                  </div>
                 </div>
               ))}
               {results.length === 0 && (
