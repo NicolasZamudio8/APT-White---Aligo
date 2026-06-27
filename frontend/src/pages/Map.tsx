@@ -269,8 +269,13 @@ export default function Map() {
 
       {droneMode && (
         <div className="grid grid-cols-1 xl:grid-cols-[240px_minmax(0,1fr)] gap-6">
-          <div className="rounded-2xl border border-zinc-900 bg-zinc-950/70 p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-zinc-200">Barra de herramientas</h3>
+          {/* Premium Payload Cards Toolbar */}
+          <div className="hud-panel p-4 space-y-3 overflow-y-auto">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-1 h-4 rounded-full" style={{ background: 'var(--aligo-red)' }} />
+              <h3 className="text-xs font-bold text-white uppercase tracking-widest">Payloads</h3>
+              <span className="ml-auto text-[9px] font-mono text-zinc-600 uppercase tracking-wider">{commandLibrary.length} cmds</span>
+            </div>
             <div className="space-y-2">
               {commandLibrary.map((command) => (
                 <div
@@ -278,41 +283,69 @@ export default function Map() {
                   draggable
                   onDragStart={(event) => handleDragStart(event, command.id)}
                   onDragEnd={() => setDraggedCommand(null)}
-                  className="cursor-grab rounded-xl border border-zinc-900 bg-black/70 p-3 transition hover:border-emerald-500 hover:bg-zinc-950"
+                  className="payload-card p-3 select-none"
                 >
-                  <div className="text-sm font-semibold text-slate-100">{command.label}</div>
-                  <p className="text-[11px] text-zinc-500 mt-1">{command.description}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-aligo-600 shrink-0" />
+                    <div className="text-xs font-bold text-white uppercase tracking-wide">{command.label}</div>
+                  </div>
+                  <p className="text-[10px] text-zinc-500 mt-1.5 ml-3.5 leading-relaxed">{command.description}</p>
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-zinc-500">
-              {draggedCommand ? `Arrastrando: ${commandLibrary.find((cmd) => cmd.id === draggedCommand)?.label}` : 'Selecciona un comando y suéltalo sobre un agente.'}
-            </p>
+            <div className="mt-3 rounded-lg border border-dashed border-zinc-800 p-3">
+              <p className="text-[10px] text-zinc-600 text-center">
+                {draggedCommand
+                  ? <span className="text-aligo-500 font-semibold">{commandLibrary.find(c => c.id === draggedCommand)?.label} — Suelta sobre un nodo</span>
+                  : 'Arrastra un payload sobre un agente o sobre el grid para ejecutar en masa'}
+              </p>
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-zinc-900 bg-black/80 p-4 space-y-4">
+          {/* Right: Main Drone Grid Panel */}
+          <div className="hud-panel p-4 space-y-4 scanline-overlay">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-zinc-200">Plano 2D de agentes</h3>
-                <p className="text-xs text-zinc-500">Cada nodo es un objetivo potencial para el comando seleccionado.</p>
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-4 rounded-full" style={{ background: 'var(--aligo-red)' }} />
+                  <h3 className="text-xs font-bold text-white uppercase tracking-widest">Plano Táctico de Agentes</h3>
+                </div>
+                <p className="text-[10px] text-zinc-600 mt-1 ml-3.5">Arrastra un payload sobre un nodo para ejecutar</p>
               </div>
-              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-emerald-300">
-                Live
+              <span className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[9px] uppercase tracking-[0.2em] font-semibold"
+                style={{
+                  borderColor: 'rgba(16,185,129,0.3)',
+                  background: 'rgba(16,185,129,0.07)',
+                  color: 'rgba(52,211,153,0.9)'
+                }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" style={{ animation: 'status-blink 1.4s ease-in-out infinite' }} />
+                Live Sync
               </span>
             </div>
 
             <div 
               onDragOver={handleDragOver}
               onDrop={handleMassiveDrop}
-              className={`grid h-[360px] grid-cols-2 gap-6 overflow-hidden rounded-xl border p-4 sm:grid-cols-3 xl:grid-cols-4 transition-colors duration-500 ${
+              className={`grid h-[400px] grid-cols-2 gap-5 overflow-y-auto rounded-xl p-5 sm:grid-cols-3 xl:grid-cols-4 transition-all duration-700 relative scanline-overlay ${
                 regionalHealth === 'critical' 
-                  ? 'border-red-500/50 bg-[radial-gradient(circle_at_center,_rgba(239,68,68,0.15),_transparent_62%)]' 
-                  : 'border-zinc-900 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.12),_transparent_62%)]'
+                  ? 'bg-gradient-to-br from-red-950/30 via-black to-black border border-red-800/40 shadow-[inset_0_0_60px_rgba(239,68,68,0.07)]' 
+                  : 'bg-gradient-to-br from-zinc-950 via-black to-[#050505] border border-white/[0.04] shadow-[inset_0_0_40px_rgba(0,0,0,0.8)]'
               }`}
             >
+              {/* Background subtle dot grid */}
+              <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{
+                backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
+                backgroundSize: '28px 28px'
+              }} />
+
               {filteredLocations.length === 0 ? (
-                <div className="col-span-full flex h-full items-center justify-center text-center text-sm text-zinc-500">
-                  No hay agentes disponibles en esta región.
+                <div className="col-span-full flex h-full items-center justify-center text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 rounded-full border border-zinc-800 flex items-center justify-center">
+                      <span className="text-zinc-600 text-xl">∅</span>
+                    </div>
+                    <p className="text-sm text-zinc-600">Sin agentes activos en esta región.</p>
+                  </div>
                 </div>
               ) : (
                 filteredLocations.map((loc) => {
@@ -323,40 +356,75 @@ export default function Map() {
                       key={loc.agentId}
                       onDragOver={handleDragOver}
                       onDrop={(event) => {
-                        event.stopPropagation(); // Evitar disparo masivo
+                        event.stopPropagation();
                         handleDrop(event, loc.agentId);
                       }}
-                      className="flex flex-col items-center group cursor-crosshair"
+                      className="drone-node"
                     >
-                      <div className={`flex h-14 w-14 items-center justify-center rounded-full border-2 transition-transform group-hover:scale-110 ${isOnline ? 'border-emerald-400 bg-emerald-500/20 shadow-[0_0_24px_rgba(16,185,129,0.25)]' : 'border-zinc-500 bg-zinc-800/30'}`}>
-                        <span className={`h-4 w-4 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-zinc-400'}`} />
+                      {/* Outer glow aura */}
+                      {isOnline && (
+                        <div className="absolute w-16 h-16 rounded-full opacity-20 pointer-events-none"
+                          style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.6) 0%, transparent 70%)' }}
+                        />
+                      )}
+
+                      {/* Main node ring */}
+                      <div className={`drone-node-ring ${
+                        isOnline
+                          ? 'online border-2 border-emerald-400/80 bg-emerald-500/10 shadow-[0_0_20px_rgba(16,185,129,0.2),inset_0_0_12px_rgba(16,185,129,0.08)]'
+                          : 'offline'
+                      }`}>
+                        {/* Inner dot */}
+                        <span className={`w-3.5 h-3.5 rounded-full ${
+                          isOnline
+                            ? 'bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.8)]'
+                            : 'bg-zinc-600'
+                        }`} style={isOnline ? { animation: 'status-blink 2.5s ease-in-out infinite' } : {}} />
+
+                        {/* HUD corner marks */}
+                        <span className="absolute top-1 left-1 w-2 h-2 border-t border-l" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
+                        <span className="absolute top-1 right-1 w-2 h-2 border-t border-r" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
+                        <span className="absolute bottom-1 left-1 w-2 h-2 border-b border-l" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
+                        <span className="absolute bottom-1 right-1 w-2 h-2 border-b border-r" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
                       </div>
-                      <span className="mt-2 max-w-[100px] truncate text-center text-[11px] font-semibold text-zinc-200">
+
+                      {/* Agent ID */}
+                      <span className="mt-2 max-w-[90px] truncate text-center text-[10px] font-bold font-mono text-white/80 tracking-tight">
                         {loc.agentId}
                       </span>
-                      <span className="max-w-[100px] truncate text-center text-[9px] font-mono text-zinc-400 leading-tight mt-0.5">
-                        {loc.ip}<br/>
-                        <span className="text-zinc-500 uppercase tracking-wider">{loc.city}</span>
+                      {/* Telemetry mini */}
+                      <span className="max-w-[90px] truncate text-center text-[8.5px] font-mono leading-tight mt-0.5"
+                        style={{ color: isOnline ? 'rgba(52,211,153,0.6)' : 'rgba(113,113,122,0.5)' }}>
+                        {loc.ip}
                       </span>
+                      <span className="text-[7.5px] uppercase tracking-widest text-zinc-600 mt-0.5">{loc.city}</span>
                     </div>
                   );
                 })
               )}
             </div>
 
-            <div className="rounded-xl border border-zinc-900 bg-zinc-950/70 p-3">
-              <h4 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">Últimas ejecuciones</h4>
-              <div className="mt-3 space-y-2">
+            {/* Executions log */}
+            <div className="rounded-xl border border-white/[0.04] bg-black/60 p-3">
+              <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-600 flex items-center gap-2">
+                <div className="w-1 h-3 rounded-full" style={{ background: 'var(--aligo-red)', opacity: 0.7 }} />
+                Últimas ejecuciones
+              </h4>
+              <div className="mt-3 space-y-1.5">
                 {executions.length === 0 ? (
-                  <p className="text-sm text-zinc-500">Aún no hay ejecuciones registradas.</p>
+                  <p className="text-[11px] text-zinc-700 italic text-center py-3">Aún no hay ejecuciones registradas.</p>
                 ) : (
                   executions.map((execution) => (
-                    <div key={execution.id} className="flex items-center justify-between rounded-lg border border-zinc-900 bg-black/70 px-3 py-2 text-sm">
+                    <div key={execution.id} className="flex items-center justify-between rounded-lg border border-white/[0.03] bg-white/[0.02] hover:bg-white/[0.04] px-3 py-2 text-sm transition-colors">
                       <div>
-                        <p className="font-semibold text-zinc-200">{execution.command} → {execution.agentId}</p>
-                        <p className="text-[11px] text-zinc-500">{execution.timestamp}</p>
+                        <p className="font-semibold text-xs text-zinc-200 font-mono">{execution.command} <span className="text-zinc-600">→</span> {execution.agentId}</p>
+                        <p className="text-[10px] text-zinc-600">{execution.timestamp}</p>
                       </div>
-                      <span className={`text-xs font-semibold ${execution.status === 'Enviado' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                        execution.status === 'Enviado'
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      }`}>
                         {execution.status}
                       </span>
                     </div>
