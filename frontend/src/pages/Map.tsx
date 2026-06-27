@@ -17,6 +17,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { geoMercator, geoPath, geoContains } from 'd3-geo';
 import TSharkModal from '../components/TSharkModal';
+import VulnerabilityAlertModal, { type VulnerabilityAlertData } from '../components/VulnerabilityAlertModal';
 
 // El mapa ahora utiliza D3 GeoJSON cargado dinámicamente
 
@@ -45,6 +46,8 @@ export default function Map() {
   // Tracks the last attack color applied to each agent node
   const [agentCommandColors, setAgentCommandColors] = useState<Record<string, string>>({});
   const [showTShark, setShowTShark] = useState(false);
+  // Vulnerability alert modal state
+  const [alertData, setAlertData] = useState<VulnerabilityAlertData | null>(null);
   const navigate = useNavigate();
 
   const [geoData, setGeoData] = useState<any>(null);
@@ -131,6 +134,20 @@ export default function Map() {
       // Apply the attack color to the node that received the payload
       setAgentCommandColors(prev => ({ ...prev, [agentId]: commandId }));
 
+      // Fire the vulnerability alert modal with AI recommendation
+      const cmdColor = COMMAND_COLORS[commandId];
+      const loc = locations.find(l => l.agentId === agentId);
+      setAlertData({
+        agentId,
+        ip: loc?.ip ?? 'N/A',
+        city: loc?.city ?? 'N/A',
+        commandId,
+        commandLabel: selectedCommand.label,
+        ringColor: cmdColor?.ring ?? '#e02424',
+        glowColor: cmdColor?.glow ?? 'rgba(224,36,36,0.35)',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+
       setExecutions((prev) => [
         {
           id: Date.now(),
@@ -142,8 +159,22 @@ export default function Map() {
         ...prev,
       ].slice(0, 5));
     } catch (error) {
-      // Even on error, visually mark the node as targeted
+      // Apply the attack color to the node that received the payload (also on error)
       setAgentCommandColors(prev => ({ ...prev, [agentId]: commandId }));
+
+      // Still show the alert — the attack was attempted regardless
+      const cmdColor = COMMAND_COLORS[commandId];
+      const loc = locations.find(l => l.agentId === agentId);
+      setAlertData({
+        agentId,
+        ip: loc?.ip ?? 'N/A',
+        city: loc?.city ?? 'N/A',
+        commandId,
+        commandLabel: selectedCommand.label,
+        ringColor: cmdColor?.ring ?? '#e02424',
+        glowColor: cmdColor?.glow ?? 'rgba(224,36,36,0.35)',
+        timestamp: new Date().toLocaleTimeString(),
+      });
 
       setExecutions((prev) => [
         {
@@ -782,6 +813,14 @@ export default function Map() {
         <TSharkModal
           onClose={() => setShowTShark(false)}
           agentIps={locations.map(l => l.ip)}
+        />
+      )}
+
+      {/* ── Vulnerability Alert Modal (AI Recommendation) ── */}
+      {alertData && (
+        <VulnerabilityAlertModal
+          data={alertData}
+          onClose={() => setAlertData(null)}
         />
       )}
     </div>
