@@ -11,19 +11,29 @@ import {
   Search,
   ExternalLink,
   Wifi,
-  WifiOff
+  WifiOff,
+  Antenna
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { geoMercator, geoPath, geoContains } from 'd3-geo';
+import TSharkModal from '../components/TSharkModal';
 
 // El mapa ahora utiliza D3 GeoJSON cargado dinámicamente
 
 const commandLibrary = [
-  { id: 'recon', label: 'Recon', description: 'Enumerar procesos y servicios' },
-  { id: 'dump', label: 'Dump', description: 'Capturar credenciales locales' },
+  { id: 'recon',  label: 'Recon',  description: 'Enumerar procesos y servicios' },
+  { id: 'dump',   label: 'Dump',   description: 'Capturar credenciales locales' },
   { id: 'beacon', label: 'Beacon', description: 'Establecer señal de persistencia' },
-  { id: 'exfil', label: 'Exfil', description: 'Extraer artefactos sensibles' },
+  { id: 'exfil',  label: 'Exfil',  description: 'Extraer artefactos sensibles' },
 ];
+
+// Color palette per attack type — harmonized with Aligo brand
+const COMMAND_COLORS: Record<string, { ring: string; glow: string; dot: string; label: string }> = {
+  recon:  { ring: '#f59e0b', glow: 'rgba(245,158,11,0.35)',  dot: '#fbbf24', label: 'RECON'  },
+  dump:   { ring: '#8b5cf6', glow: 'rgba(139,92,246,0.35)',  dot: '#a78bfa', label: 'DUMP'   },
+  beacon: { ring: '#06b6d4', glow: 'rgba(6,182,212,0.35)',   dot: '#22d3ee', label: 'BEACON' },
+  exfil:  { ring: '#e02424', glow: 'rgba(224,36,36,0.40)',   dot: '#f87171', label: 'EXFIL'  },
+};
 
 export default function Map() {
   const { locations, loading, error, fetchLocations } = useMapStore();
@@ -32,6 +42,9 @@ export default function Map() {
   const [droneMode, setDroneMode] = useState(true);
   const [draggedCommand, setDraggedCommand] = useState<string | null>(null);
   const [executions, setExecutions] = useState<Array<{ id: number; agentId: string; command: string; timestamp: string; status: string }>>([]);
+  // Tracks the last attack color applied to each agent node
+  const [agentCommandColors, setAgentCommandColors] = useState<Record<string, string>>({});
+  const [showTShark, setShowTShark] = useState(false);
   const navigate = useNavigate();
 
   const [geoData, setGeoData] = useState<any>(null);
@@ -115,6 +128,9 @@ export default function Map() {
         command: commandPayloads[commandId] || selectedCommand.label,
       });
 
+      // Apply the attack color to the node that received the payload
+      setAgentCommandColors(prev => ({ ...prev, [agentId]: commandId }));
+
       setExecutions((prev) => [
         {
           id: Date.now(),
@@ -126,6 +142,9 @@ export default function Map() {
         ...prev,
       ].slice(0, 5));
     } catch (error) {
+      // Even on error, visually mark the node as targeted
+      setAgentCommandColors(prev => ({ ...prev, [agentId]: commandId }));
+
       setExecutions((prev) => [
         {
           id: Date.now(),
@@ -164,6 +183,11 @@ export default function Map() {
       );
       
       const results = await Promise.all(promises);
+
+      // Paint all targeted nodes with the attack color
+      const colorUpdates: Record<string, string> = {};
+      results.forEach(res => { colorUpdates[res.loc.agentId] = commandId; });
+      setAgentCommandColors(prev => ({ ...prev, ...colorUpdates }));
       
       const newExecutions = results.map((res, idx) => ({
         id: Date.now() + idx,
@@ -350,6 +374,12 @@ export default function Map() {
               ) : (
                 filteredLocations.map((loc) => {
                   const isOnline = loc.status === 'online';
+                  // Determine node color: attack color if targeted, else green for online, gray for offline
+                  const attackCommandId = agentCommandColors[loc.agentId];
+                  const attackColor = attackCommandId ? COMMAND_COLORS[attackCommandId] : null;
+                  const nodeRing  = attackColor ? attackColor.ring  : (isOnline ? '#34d399' : '#52525b');
+                  const nodeGlow  = attackColor ? attackColor.glow  : (isOnline ? 'rgba(52,211,153,0.25)' : 'transparent');
+                  const nodeDot   = attackColor ? attackColor.dot   : (isOnline ? '#34d399' : '#71717a');
 
                   return (
                     <div
@@ -361,42 +391,65 @@ export default function Map() {
                       }}
                       className="drone-node"
                     >
-                      {/* Outer glow aura */}
-                      {isOnline && (
-                        <div className="absolute w-16 h-16 rounded-full opacity-20 pointer-events-none"
-                          style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.6) 0%, transparent 70%)' }}
-                        />
-                      )}
+                      {/* Outer glow aura — uses dynamic attack color */}
+                      <div className="absolute w-16 h-16 rounded-full opacity-25 pointer-events-none transition-all duration-700"
+                        style={{ background: `radial-gradient(circle, ${nodeGlow} 0%, transparent 70%)` }}
+                      />
 
-                      {/* Main node ring */}
-                      <div className={`drone-node-ring ${
-                        isOnline
-                          ? 'online border-2 border-emerald-400/80 bg-emerald-500/10 shadow-[0_0_20px_rgba(16,185,129,0.2),inset_0_0_12px_rgba(16,185,129,0.08)]'
-                          : 'offline'
-                      }`}>
+                      {/* Main node ring — dynamic color border */}
+                      <div
+                        className="drone-node-ring"
+                        style={{
+                          border: `2px solid ${nodeRing}`,
+                          background: `${nodeRing}18`,
+                          boxShadow: `0 0 20px ${nodeGlow}, inset 0 0 12px ${nodeRing}18`,
+                          transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                        }}
+                      >
+                        {/* Ping ring for online nodes */}
+                        {isOnline && (
+                          <span className="absolute inset-[-4px] rounded-full pointer-events-none"
+                            style={{
+                              border: `1.5px solid ${nodeRing}80`,
+                              animation: 'ping-ring 2s ease-out infinite',
+                            }}
+                          />
+                        )}
+
                         {/* Inner dot */}
-                        <span className={`w-3.5 h-3.5 rounded-full ${
-                          isOnline
-                            ? 'bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.8)]'
-                            : 'bg-zinc-600'
-                        }`} style={isOnline ? { animation: 'status-blink 2.5s ease-in-out infinite' } : {}} />
+                        <span
+                          className="w-3.5 h-3.5 rounded-full transition-all duration-700"
+                          style={{
+                            background: nodeDot,
+                            boxShadow: `0 0 10px ${nodeDot}cc`,
+                            animation: isOnline ? 'status-blink 2.5s ease-in-out infinite' : 'none',
+                          }}
+                        />
 
-                        {/* HUD corner marks */}
-                        <span className="absolute top-1 left-1 w-2 h-2 border-t border-l" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
-                        <span className="absolute top-1 right-1 w-2 h-2 border-t border-r" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
-                        <span className="absolute bottom-1 left-1 w-2 h-2 border-b border-l" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
-                        <span className="absolute bottom-1 right-1 w-2 h-2 border-b border-r" style={{ borderColor: isOnline ? 'rgba(16,185,129,0.5)' : 'rgba(113,113,122,0.3)' }} />
+                        {/* HUD corner marks — match attack color */}
+                        <span className="absolute top-1 left-1 w-2 h-2 border-t border-l transition-colors duration-700" style={{ borderColor: `${nodeRing}80` }} />
+                        <span className="absolute top-1 right-1 w-2 h-2 border-t border-r transition-colors duration-700" style={{ borderColor: `${nodeRing}80` }} />
+                        <span className="absolute bottom-1 left-1 w-2 h-2 border-b border-l transition-colors duration-700" style={{ borderColor: `${nodeRing}80` }} />
+                        <span className="absolute bottom-1 right-1 w-2 h-2 border-b border-r transition-colors duration-700" style={{ borderColor: `${nodeRing}80` }} />
                       </div>
 
                       {/* Agent ID */}
                       <span className="mt-2 max-w-[90px] truncate text-center text-[10px] font-bold font-mono text-white/80 tracking-tight">
                         {loc.agentId}
                       </span>
-                      {/* Telemetry mini */}
-                      <span className="max-w-[90px] truncate text-center text-[8.5px] font-mono leading-tight mt-0.5"
-                        style={{ color: isOnline ? 'rgba(52,211,153,0.6)' : 'rgba(113,113,122,0.5)' }}>
-                        {loc.ip}
-                      </span>
+
+                      {/* Attack label badge (shows attack type when targeted) */}
+                      {attackColor ? (
+                        <span className="text-[7px] font-bold uppercase tracking-widest mt-0.5 px-1.5 py-0.5 rounded-sm"
+                          style={{ background: `${nodeRing}22`, color: nodeRing, border: `1px solid ${nodeRing}40` }}>
+                          {attackColor.label}
+                        </span>
+                      ) : (
+                        <span className="max-w-[90px] truncate text-center text-[8.5px] font-mono leading-tight mt-0.5"
+                          style={{ color: isOnline ? 'rgba(52,211,153,0.6)' : 'rgba(113,113,122,0.5)' }}>
+                          {loc.ip}
+                        </span>
+                      )}
                       <span className="text-[7.5px] uppercase tracking-widest text-zinc-600 mt-0.5">{loc.city}</span>
                     </div>
                   );
@@ -684,6 +737,54 @@ export default function Map() {
           </div>
         </div>
       )}
+
+      {/* ── Attack color legend ── */}
+      <div className="flex flex-wrap items-center gap-3 px-1">
+        <span className="text-[9px] font-mono text-zinc-700 uppercase tracking-widest mr-1">Leyenda de ataques:</span>
+        {Object.entries(COMMAND_COLORS).map(([id, c]) => (
+          <span key={id} className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider"
+            style={{ color: c.ring }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: c.ring }} />
+            {c.label}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-emerald-400 ml-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          ONLINE
+        </span>
+        <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-zinc-600">
+          <span className="w-2 h-2 rounded-full bg-zinc-600" />
+          OFFLINE
+        </span>
+      </div>
+
+      {/* ── TShark Floating Action Button ── */}
+      <button
+        onClick={() => setShowTShark(true)}
+        title="Abrir TShark — Captura de red"
+        className="fixed bottom-8 right-8 z-40 flex items-center gap-2 px-4 py-3 rounded-2xl font-semibold text-xs text-white transition-all duration-300 shadow-2xl group"
+        style={{
+          background: 'linear-gradient(135deg, #7a0d0d, #e02424)',
+          boxShadow: '0 0 30px rgba(224,36,36,0.35), 0 4px 20px rgba(0,0,0,0.6)',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 45px rgba(224,36,36,0.55), 0 4px 24px rgba(0,0,0,0.7)')}
+        onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 0 30px rgba(224,36,36,0.35), 0 4px 20px rgba(0,0,0,0.6)')}
+      >
+        <Antenna className="w-4 h-4" style={{ animation: 'status-blink 2s ease-in-out infinite' }} />
+        <span className="uppercase tracking-widest">TShark</span>
+        {/* Pulse ring around FAB */}
+        <span className="absolute inset-0 rounded-2xl pointer-events-none"
+          style={{ border: '1.5px solid rgba(224,36,36,0.4)', animation: 'ping-ring 2.5s ease-out infinite' }} />
+      </button>
+
+      {/* ── TShark Modal ── */}
+      {showTShark && (
+        <TSharkModal
+          onClose={() => setShowTShark(false)}
+          agentIps={locations.map(l => l.ip)}
+        />
+      )}
     </div>
   );
 }
+
