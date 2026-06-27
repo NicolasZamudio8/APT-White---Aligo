@@ -1,6 +1,6 @@
 # Aligo C2 Platform 🛸
 
-Aligo es una plataforma de comando y control (C2) de grado empresarial diseñada para la simulación de adversarios y entrenamiento de equipos de ciberseguridad (Red Team / Blue Team). Permite orquestar agentes, monitorear la topología de red distributiva mediante proxies/redirectores, y analizar telemetría táctica asistida por Inteligencia Artificial.
+Aligo C2 Platform es una plataforma de comando y control (C2) de grado empresarial diseñada para la simulación de adversarios y entrenamiento de equipos de ciberseguridad (Red Team / Blue Team). Permite orquestar agentes, monitorear la topología de red distributiva mediante proxies/redirectores, y analizar telemetría táctica asistida por Inteligencia Artificial.
 
 ---
 
